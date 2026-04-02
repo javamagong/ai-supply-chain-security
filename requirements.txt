@@ -1,0 +1,15 @@
+# AI Security Scanner - Python Dependencies
+
+# Core dependencies
+pyyaml>=6.0
+colorama>=0.4.6
+watchdog>=3.0.0
+
+# Optional: for advanced features
+# requests>=2.28.0  # webhook notifications
+# cryptography>=39.0  # signed reports
+
+# Development
+# pytest>=7.0.0
+# black>=23.0.0
+# mypy>=1.0.0

@@ -1,0 +1,133 @@
+# AI Security Scanner Configuration
+# 跨平台配置文件，支持 Windows/macOS/Linux
+
+# 扫描路径（支持多个）
+scan_paths:
+  - ./projects
+  - ~/work
+  - ~/dev
+
+# 排除模式（glob 风格）
+exclude_patterns:
+  - "**/node_modules/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/.git/**"
+  - "**/__pycache__/**"
+  - "**/venv/**"
+  - "**/.venv/**"
+  - "**/vendor/**"
+  - "**/*.min.js"
+  - "**/*.bundle.js"
+
+# 启用的检测规则
+rules:
+  enabled:
+    # 高危 - 远程代码执行
+    - HOOK-001  # curl | bash
+    - HOOK-002  # wget | bash
+    - HOOK-003  # bash -c curl
+    # 高危 - 破坏性命令
+    - HOOK-004  # rm -rf
+    - HOOK-005  # del
+    - HOOK-006  # format
+    # 高危 - 权限提升
+    - HOOK-007  # chmod 777
+    - HOOK-008  # sudo rm
+    # 中危 - 代码执行
+    - HOOK-010  # eval
+    - HOOK-011  # python -c
+    - HOOK-012  # node -e
+    - HOOK-013  # powershell
+    - HOOK-014  # base64 decode
+    # 中危 - 网络操作
+    - HOOK-020  # nc -e
+    - HOOK-021  # bash /dev/tcp
+    - HOOK-022  # curl -o *.sh
+    # 供应链投毒
+    - SUPPLY-001  # postinstall 危险命令
+    - SUPPLY-002  # preinstall 危险命令
+    - SUPPLY-003  # prepare 可疑命令
+  
+  # 默认禁用的规则（按需启用）
+  disabled:
+    - HOOK-030  # npm install -g (信息级别)
+    - HOOK-031  # pip install (信息级别)
+    - HOOK-032  # cargo install (信息级别)
+
+# 报告设置
+report:
+  format: markdown  # text|json|markdown
+  output_dir: ./reports
+  retention_days: 30
+  include_safe_files: false
+
+# 通知设置
+notifications:
+  # 邮件通知
+  email:
+    enabled: false
+    smtp_server: smtp.example.com
+    smtp_port: 587
+    use_tls: true
+    username: security@example.com
+    password_env: SMTP_PASSWORD  # 从环境变量读取密码
+    from_addr: ai-scanner@example.com
+    to_addrs:
+      - security-team@example.com
+  
+  # Webhook 通知（Slack/Discord/钉钉）
+  webhook:
+    enabled: false
+    url_env: SECURITY_WEBHOOK_URL  # 从环境变量读取
+    type: slack  # slack|discord|dingtalk|custom
+    
+    # Slack: https://hooks.slack.com/xxx
+    # Discord: https://discord.com/api/webhooks/xxx
+    # 钉钉：https://oapi.dingtalk.com/robot/send?access_token=xxx
+  
+  # 系统通知
+  system:
+    enabled: true  # 使用系统通知（macOS: osascript, Windows: toast, Linux: notify-send）
+
+# 扫描模式
+scan:
+  # 文件类型检测
+  file_types:
+    - config.json
+    - package.json
+    - .cursorrules
+    - Cargo.toml
+    - requirements.txt
+  
+  # 最大文件大小（MB）
+  max_file_size: 10
+  
+  # 深度限制（-1 为无限制）
+  max_depth: -1
+  
+  # 是否扫描符号链接
+  follow_symlinks: false
+
+# CI/CD 设置
+ci:
+  # 发现 CRITICAL 问题时失败
+  fail_on_critical: true
+  
+  # 发现 WARNING 问题时失败
+  fail_on_warning: false
+  
+  # 输出格式
+  output_format: json
+  
+  # 报告上传
+  upload_artifact: true
+
+# 性能优化
+performance:
+  # 并行扫描文件数
+  parallel_files: 4
+  
+  # 使用缓存
+  use_cache: true
+  cache_ttl_hours: 24

@@ -1,0 +1,19 @@
+{
+  "ownerId": "javamagong",
+  "slug": "ai-security-scanner",
+  "version": "2.0.0",
+  "description": "跨平台 AI Coding 辅助安全监控技能，检测 Claude Code、Cursor 等 AI 助手的 hooks 配置风险和供应链投毒攻击",
+  "shortDescription": "AI Coding 辅助安全监控，检测 hooks 和供应链投毒",
+  "category": "security",
+  "tags": ["security", "ai", "coding", "claude-code", "cursor", "supply-chain", "hooks", "npm", "python"],
+  "platforms": ["windows", "macos", "linux"],
+  "requirements": {
+    "python": "3.8"
+  },
+  "license": "MIT",
+  "author": "JavaMaGong",
+  "homepage": "https://github.com/javamagong/ai-security-scanner",
+  "repository": "https://github.com/javamagong/ai-security-scanner",
+  "issues": "https://github.com/javamagong/ai-security-scanner/issues",
+  "publishedAt": 1775130508000
+}
