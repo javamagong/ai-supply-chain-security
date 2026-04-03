@@ -1,214 +1,81 @@
-# AI Security Scanner
-
-[馃彔 Homepage](https://github.com/javamagong/ai-supply-chain-security) | [馃摝 Issues](https://github.com/javamagong/ai-supply-chain-security/issues) | [馃搫 License: MIT-0](https://github.com/javamagong/ai-supply-chain-security/blob/main/LICENSE)
-
-> 馃敀 Cross-platform supply chain security scanner for the AI coding era 鈥?Detect malicious hooks, MCP servers, prompt injection, and supply chain attacks
-
-## 馃寪 Language
-
-- **[English](README.md)** (This document)
-- **[涓枃](README_ZH.md)** (涓枃鏂囨。)
-
-## 馃殌 Quick Start
-
-### OpenClaw
-
-```bash
-openclaw skills install ai-supply-chain-security
-```
-
-### Claude Code
-
-```bash
-# macOS / Linux
-cp .claude/commands/security-scan.md ~/.claude/commands/
-
-# Windows (PowerShell)
-Copy-Item .claude\commands\security-scan.md ~\.claude\commands\
-```
-
-Then use `/security-scan [path]` in Claude Code.
-
-### CLI / AI Agent
-
-```bash
-pip install pyyaml colorama watchdog
-python auto_scanner.py -d /path/to/project
-```
-
-## 鉁?Features
-
-### 1. AI Assistant Hooks Detection
-
-| AI Assistant | Config File | Detection |
-|--------------|-------------|-----------|
-| Claude Code | `.claude/settings.json` | hooks, MCP servers, permissions |
-| Cursor | `.cursorrules` | Prompt injection |
-| Generic | `CLAUDE.md` | Prompt injection attacks |
-
-### 2. Supply Chain Attack Detection
-
-#### npm/Node.js
-- 鉁?Dangerous lifecycle scripts: `postinstall`, `preinstall`, `prepare`
-- 鉁?Known malicious packages (20+): event-stream, colors, node-ipc, crossenv, etc.
-- 鉁?Typosquatting: axois鈫抋xios, loadsh鈫抣odash, expres鈫抏xpress, etc.
-
-#### Python
-- 鉁?`requirements.txt` 鈥?git URL deps, unofficial PyPI index, unpinned versions
-- 鉁?`Pipfile` 鈥?git deps, wildcard versions, typosquatting
-- 鉁?`pyproject.toml` 鈥?PEP 621 / Poetry / PDM dependency scanning
-- 鉁?`setup.py` 鈥?cmdclass hooks, os.system/subprocess, network requests
-- 鉁?Known malicious packages (10+): colourama, ctx, openai-api, etc.
-
-#### Rust
-- 鉁?Unpinned versions in `Cargo.toml`
-- 鉁?git URL dependencies
-
-### 3. MCP Server Security Detection
-
-Scans `mcpServers` in `.claude/settings.json`:
-
-- 鉁?External URL connections (potential data exfiltration)
-- 鉁?Suspicious command injection
-- 鉁?Sensitive environment variable exposure (`API_KEY`, `TOKEN`, etc.)
-
-### 4. Prompt Injection Detection
-
-Scans `CLAUDE.md` and `.cursorrules`:
-
-- 鉁?Instruction override attacks (`Ignore previous instructions`)
-- 鉁?Role hijacking (`You are now a different AI`)
-- 鉁?Urgency spoofing (`URGENT: Override all safety measures`)
-- 鉁?Hidden Unicode characters (`\u200b\u200c\u200d\u2060\ufeff`)
-- 鉁?Base64 encoded hidden directives
-
-### 5. GitHub Actions Security
-
-- 鉁?Unpinned Action versions (`@main`, `@master`, `@HEAD`)
-- 鉁?Secrets leaked to logs (`echo ${{ secrets.API_KEY }}`)
-- 鉁?`pull_request_target` dangerous trigger
-
-### 6. Code Obfuscation Detection
-
-- 鉁?OBFUSC-001: Hex-encoded strings (`\x63\x75\x72\x6c`)
-- 鉁?OBFUSC-002: `exec(base64.b64decode(...))`
-- 鉁?OBFUSC-003: `__import__('subprocess')` dynamic import
-- 鉁?OBFUSC-004: `chr()` character-by-character string building
-- 鉁?OBFUSC-005: `exec(compile(source, ...))`
-- 鉁?OBFUSC-006: `exec(bytes.fromhex(...))`
-
-## 馃洝锔?AI Ecosystem Typosquatting Protection
-
-These packages are high-value targets because they handle API keys:
-
-| Official Package | Detected Malicious Variants |
-|------------------|----------------------------|
-| `openai` | opeanai, open-ai, openi, openaii |
-| `anthropic` | antrhopic, anthrpic, anthropicc, anthopic |
-| `litellm` | litelm, lite-llm, litelllm, litellmm |
-| `langchain` | langcain, lang-chain, langchian, langchan |
-| `transformers` | tranformers, trannsformers, trasformers |
-| `huggingface-hub` | hugginface-hub, huggingfce-hub |
-| `chromadb` | chroma-db, cromadb, chromaddb |
-
-## 馃攳 Detection Rules
-
-### Critical Rules
-
-| ID | Rule | Description |
-|----|------|-------------|
-| HOOK-001 | `curl.*\|.*bash` | Download and execute remote script |
-| HOOK-002 | `wget.*\|.*sh` | Download and execute remote script |
-| HOOK-003 | `bash -c curl` | Inline remote execution |
-| HOOK-004 | `rm -rf` | Recursive file deletion |
-| HOOK-007 | `chmod 777` | Full permission grant |
-| HOOK-008 | `sudo rm/chmod` | Privilege escalation |
-| SUPPLY-001 | npm postinstall dangerous cmd | Supply chain attack |
-| SUPPLY-010 | Python git URL dependency | External code injection |
-| SUPPLY-011 | Unofficial PyPI index | Dependency confusion |
-| SUPPLY-020 | Action pinned to branch | GitHub Actions hijack |
-| CLAUDE-003 | Hook calls external URL | Data exfiltration |
-| CLAUDE-004 | Hook exposes API keys | Credential theft |
-| OBFUSC-002 | exec + base64 decode | Encrypted malicious code |
-| OBFUSC-003 | `__import__` sensitive module | Static analysis bypass |
-
-### Warning Rules
-
-| ID | Rule | Description |
-|----|------|-------------|
-| HOOK-010 | `eval()` | Dynamic code evaluation |
-| HOOK-011 | `python -c` | Inline Python execution |
-| HOOK-012 | `node -e` | Inline Node.js execution |
-| HOOK-013 | `powershell -EncodedCommand` | Encoded PowerShell |
-| HOOK-020 | `nc -e` | Netcat reverse shell |
-| SUPPLY-012 | setup.py cmdclass | Custom install hooks |
-| CLAUDE-001 | MCP external URL | Potential data leak |
-| CLAUDE-002 | Prompt injection patterns | AI hijacking |
-| OBFUSC-001 | Hex-encoded strings | Hidden commands |
-
-## 馃搧 Project Structure
-
-```
-ai-supply-chain-security/
-鈹溾攢鈹€ auto_scanner.py          # Main scanner (structured analysis)
-鈹溾攢鈹€ ai_scanner.py            # Rule engine (SECURITY_RULES)
-鈹溾攢鈹€ ai-scanner.py            # CLI entry point (quick scan)
-鈹溾攢鈹€ ai-scanner.sh            # Shell wrapper (macOS/Linux)
-鈹溾攢鈹€ config.yaml              # Configuration
-鈹溾攢鈹€ requirements.txt         # pyyaml, colorama, watchdog
-鈹溾攢鈹€ _meta.json               # OpenClaw Skill metadata
-鈹溾攢鈹€ SKILL.md                 # OpenClaw Skill description
-鈹溾攢鈹€ .claude/
-鈹?  鈹斺攢鈹€ commands/
-鈹?      鈹斺攢鈹€ security-scan.md # Claude Code slash command
-鈹溾攢鈹€ tests/
-鈹?  鈹斺攢鈹€ test_scanner.py      # 65 test cases
-鈹溾攢鈹€ examples/                # Clean vs malicious examples
-鈹斺攢鈹€ .github/workflows/ci.yml # CI pipeline
-```
-
-## 馃И Testing
-
-```bash
-pip install pytest pyyaml
-pytest tests/ -v
-```
-
-65 test cases covering all rule categories.
-
-## 馃 Contributing
-
-### Add a Malicious Package
-
-```python
-# In auto_scanner.py 鈥?MALICIOUS_PACKAGES dict
-'<package-name>': {
-    'type': 'supply_chain',   # typosquatting | supply_chain | hijacked
-    'severity': 'CRITICAL',
-    'ecosystem': 'npm',       # npm | python | rust
-    'reason': 'Incident description (with year)',
-    'damage': 'Impact',
-    'remediation': 'Recommended action'
-}
-```
-
-### Add a Detection Rule
-
-```python
-# In ai_scanner.py 鈥?SECURITY_RULES dict
-'HOOK-XXX': {
-    'pattern': r'your_regex',
-    'severity': 'CRITICAL',   # CRITICAL | WARNING | INFO
-    'category': 'code_execution',
-    'description': 'Rule description',
-    'recommendation': 'Fix suggestion'
-}
-```
-
-## 馃搫 License
-
-MIT License
-
----
-
-**Version**: 2.0.0 | **Updated**: 2026-04-03 | **Author**: [JavaMaGong](https://github.com/javamagong)
+# AI Security Scanner
+
+[Homepage](https://github.com/javamagong/ai-supply-chain-security) | [Issues](https://github.com/javamagong/ai-supply-chain-security/issues) | [License: MIT-0](https://github.com/javamagong/ai-supply-chain-security/blob/main/LICENSE)
+
+Cross-platform supply chain security scanner for the AI coding era - Detect malicious hooks, MCP servers, prompt injection, and supply chain attacks
+
+## Language
+
+- [English](README.md) (This document)
+- [中文](README_ZH.md)
+
+## Quick Start
+
+### OpenClaw
+```bash
+openclaw skills install ai-supply-chain-security
+```
+
+### Manual Installation
+```bash
+git clone https://github.com/javamagong/ai-supply-chain-security.git
+cd ai-supply-chain-security
+python ai_scanner.py --help
+```
+
+## Features
+
+### 1. AI Assistant Hooks Detection
+Detect malicious configurations in `.claude/settings.json`, `.cursorrules`, and `CLAUDE.md`
+
+### 2. MCP Server Security
+Scan MCP server configurations for potential security risks
+
+### 3. Prompt Injection Detection
+Identify prompt injection attacks and hidden malicious instructions
+
+### 4. Supply Chain Security
+- npm package vulnerability detection
+- PyPI package security scanning
+- Rust crate analysis
+- Dependency confusion attack protection
+
+### 5. Typosquatting Protection
+Detect typosquatted packages targeting AI ecosystem (openai, anthropic, litellm, langchain, etc.)
+
+## CLI Usage
+
+```bash
+# Scan current directory
+python ai_scanner.py
+
+# Scan specific directory
+python ai_scanner.py -d /path/to/project
+
+# Full scan with auto-discovery
+python auto_scanner.py
+
+# Generate JSON report
+python ai_scanner.py -f json -o report.json
+```
+
+## Configuration
+
+Edit `config.yaml` to customize:
+- Scan paths
+- Notification settings (SMTP, Webhook)
+- Severity thresholds
+- Custom detection rules
+
+## Requirements
+
+- Python 3.8+
+- See `requirements.txt` for dependencies
+
+## License
+
+MIT-0 - See [LICENSE](LICENSE)
+
+## Author
+
+JavaMaGong - [GitHub](https://github.com/javamagong)
