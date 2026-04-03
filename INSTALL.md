@@ -1,10 +1,12 @@
-# AI Security Scanner - OpenClaw Skill 安装指南
+# AI Security Scanner - 安装指南
 
 ## 🎯 概述
 
-**AI Security Scanner** 是一款 OpenClaw Skill，提供跨平台的 AI 助手安全监控功能。
+**AI Security Scanner** 同时支持 **OpenClaw** 和 **Claude Code** 两个平台，提供跨平台的 AI 助手安全监控功能。
 
-## 📦 安装方式
+---
+
+## 🦞 OpenClaw 安装
 
 ### 方式 1：从 ClawHub 安装（推荐）
 
@@ -14,8 +16,6 @@ openclaw skills install ai-security-scanner
 
 ### 方式 2：从本地目录安装
 
-如果你是开发者或想使用本地版本：
-
 ```bash
 openclaw skills install /path/to/ai-security-scanner
 ```
@@ -24,6 +24,39 @@ openclaw skills install /path/to/ai-security-scanner
 
 ```bash
 openclaw skills link ai-security-scanner /path/to/ai-security-scanner
+```
+
+安装后在对话中直接说「扫描 /path/to/project」即可触发扫描。
+
+---
+
+## 🤖 Claude Code 安装
+
+### 方式 1：全局命令（推荐，任意项目可用）
+
+```bash
+# macOS / Linux
+cp .claude/commands/security-scan.md ~/.claude/commands/
+
+# Windows (PowerShell)
+Copy-Item .claude\commands\security-scan.md ~\.claude\commands\
+```
+
+安装后在 Claude Code 中使用：
+```
+/security-scan                    # 扫描当前目录
+/security-scan /path/to/project   # 扫描指定目录
+```
+
+### 方式 2：项目级命令（仅在本项目目录内可用）
+
+无需额外操作，克隆本项目后在项目目录中打开 Claude Code，`/security-scan` 命令自动可用。
+
+### 方式 3：手动触发（无需安装）
+
+在 Claude Code 对话中直接输入：
+```
+用 python /path/to/auto_scanner.py -d . -f json 扫描当前项目，汇报安全问题
 ```
 
 ## 🔧 前置要求

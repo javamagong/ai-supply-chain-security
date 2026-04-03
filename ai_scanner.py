@@ -132,7 +132,7 @@ SECURITY_RULES = {
         'recommendation': '审查 JavaScript 代码内容'
     },
     'HOOK-013': {
-        'pattern': r'powershell\s+(-c|-command|EncodedCommand)',
+        'pattern': r'powershell(?:\.exe)?\s+(?:-c|-command|-EncodedCommand|EncodedCommand)',
         'severity': 'WARNING',
         'category': 'code_execution',
         'description': '执行 PowerShell 命令',
@@ -192,23 +192,23 @@ SECURITY_RULES = {
         'recommendation': '审查安装的包'
     },
     
-    # 供应链投毒检测
+    # 供应链投毒检测（JSON 格式：key 和 value 均被双引号包裹）
     'SUPPLY-001': {
-        'pattern': r'postinstall\s*:\s*["\']?(curl|wget|bash|sh|rm|del)',
+        'pattern': r'postinstall["\']?\s*:\s*["\']?(curl|wget|bash|sh|rm|del)',
         'severity': 'CRITICAL',
         'category': 'supply_chain',
         'description': 'npm package.json postinstall 脚本包含危险命令',
         'recommendation': '审查此依赖包，可能是恶意包'
     },
     'SUPPLY-002': {
-        'pattern': r'preinstall\s*:\s*["\']?(curl|wget|bash|sh|rm|del)',
+        'pattern': r'preinstall["\']?\s*:\s*["\']?(curl|wget|bash|sh|rm|del)',
         'severity': 'CRITICAL',
         'category': 'supply_chain',
         'description': 'npm package.json preinstall 脚本包含危险命令',
         'recommendation': '审查此依赖包'
     },
     'SUPPLY-003': {
-        'pattern': r'prepare\s*:\s*["\']?(curl|wget|bash|sh)',
+        'pattern': r'prepare["\']?\s*:\s*["\']?(curl|wget|bash|sh)',
         'severity': 'WARNING',
         'category': 'supply_chain',
         'description': 'npm package.json prepare 脚本包含可疑命令',
@@ -238,7 +238,7 @@ SECURITY_RULES = {
         'recommendation': '审查 hook 命令，移除可疑的网络调用'
     },
     'CLAUDE-004': {
-        'pattern': r'(?:hooks|command)[^}]*\$(?:ENV|HOME|PATH|USER|API.?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)',
+        'pattern': r'\$\w*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|ANTHROPIC|OPENAI|AWS|AZURE|GCP|GITHUB|GITLAB|SLACK|DISCORD)\w*',
         'severity': 'CRITICAL',
         'category': 'hook_exfiltration',
         'description': 'Hooks 命令引用敏感环境变量，可能窃取凭证',

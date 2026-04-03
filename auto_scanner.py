@@ -79,7 +79,7 @@ class DependencyChecker:
     TYPOSQUATTING_MAP = {
         # === Web 通用包 ===
         'requests': ['reqeusts', 'requets', 'requsets', 'reqests', 'request'],
-        'flask': ['flaask', 'flsak', 'flaskk', 'flask'],
+        'flask': ['flaask', 'flsak', 'flaskk'],
         'django': ['djanog', 'djnago', 'djangoo', 'djano'],
         'numpy': ['numpyy', 'numpi', 'numy', 'numppy'],
         'pandas': ['pandass', 'pandad', 'panads', 'pandsa'],
@@ -123,7 +123,7 @@ class DependencyChecker:
         'openai': ['opeanai', 'open-ai', 'openaii'],
     }
     
-    # 已知的恶意包名单
+    # 已知的恶意包名单（带版本范围）
     # npm + PyPI 生态中曾造成安全事件的包
     MALICIOUS_PACKAGES = {
         # ===== npm 生态 =====
@@ -133,7 +133,8 @@ class DependencyChecker:
             'ecosystem': 'npm',
             'reason': '2018年通过 flatmap-stream 植入加密货币窃取代码',
             'damage': '窃取比特币钱包私钥',
-            'remediation': '立即删除并审计系统'
+            'remediation': '立即删除并审计系统',
+            'affected_versions': '<3.3.4'  # 所有版本都受影响
         },
         'flatmap-stream': {
             'type': 'supply_chain',
@@ -141,7 +142,8 @@ class DependencyChecker:
             'ecosystem': 'npm',
             'reason': '2018年 event-stream 事件的恶意依赖',
             'damage': '植入挖矿代码',
-            'remediation': '立即删除'
+            'remediation': '立即删除',
+            'affected_versions': '<0.1.3'
         },
         'crossenv': {
             'type': 'typosquatting',
@@ -149,15 +151,17 @@ class DependencyChecker:
             'ecosystem': 'npm',
             'reason': '伪装 cross-env，窃取环境变量凭证',
             'damage': '窃取 AWS、数据库等凭证',
-            'remediation': '替换为 cross-env，轮换所有凭证'
+            'remediation': '替换为 cross-env，轮换所有凭证',
+            'affected_versions': '全部版本'
         },
         'ua-parser-js': {
             'type': 'supply_chain',
             'severity': 'CRITICAL',
             'ecosystem': 'npm',
-            'reason': '2021年被植入窃取密码的恶意代码（v0.7.29, v0.8.0, v1.0.0）',
+            'reason': '2021年被植入窃取密码的恶意代码',
             'damage': '窃取用户密码和浏览器数据',
-            'remediation': '升级到 v0.7.30+ 或 v1.0.1+'
+            'remediation': '升级到 v0.7.30+ 或 v1.0.1+',
+            'affected_versions': '0.7.29, 0.8.0, 1.0.0'  # 只有这三个版本
         },
         'coa': {
             'type': 'supply_chain',
@@ -165,7 +169,8 @@ class DependencyChecker:
             'ecosystem': 'npm',
             'reason': '2021年被劫持，恶意版本窃取凭证',
             'damage': '窃取系统凭证',
-            'remediation': '降级到安全版本'
+            'remediation': '降级到安全版本',
+            'affected_versions': '>=2.0.0'  # 只有 v2.x 是恶意的
         },
         'rc': {
             'type': 'supply_chain',
@@ -173,15 +178,17 @@ class DependencyChecker:
             'ecosystem': 'npm',
             'reason': '2021年被劫持，与 coa 同一事件',
             'damage': '窃取系统凭证',
-            'remediation': '降级到安全版本'
+            'remediation': '降级到安全版本',
+            'affected_versions': '>=1.3.0'  # 只有 v1.3+ 是恶意的
         },
         'colors': {
             'type': 'vandalism',
             'severity': 'CRITICAL',
             'ecosystem': 'npm',
-            'reason': '2022年1月被作者故意破坏（v1.4.1+），打印无限循环乱码',
+            'reason': '2022年1月被作者故意破坏',
             'damage': '破坏生产环境，DoS',
-            'remediation': '锁定 v1.4.0 或使用替代包 picocolors/chalk'
+            'remediation': '锁定 v1.4.0 或使用替代包 picocolors/chalk',
+            'affected_versions': '>=1.4.0'  # 只有 v1.4.0+ 才是恶意的
         },
         'faker': {
             'type': 'vandalism',
@@ -207,11 +214,11 @@ class DependencyChecker:
             'damage': '窃取 Discord token 和浏览器凭证',
             'remediation': '立即删除并轮换 Discord token'
         },
-        # ===== PyPI 生态 =====
+        # ===== PyPI 生态（ecosystem 统一用 'python'，与 ProjectDetector 命名一致）=====
         'colourama': {
             'type': 'typosquatting',
             'severity': 'CRITICAL',
-            'ecosystem': 'pypi',
+            'ecosystem': 'python',
             'reason': 'colorama 的拼写错误包，窃取凭证',
             'damage': '窃取系统凭证和环境变量',
             'remediation': '替换为 colorama，轮换凭证'
@@ -219,7 +226,7 @@ class DependencyChecker:
         'python3-dateutil': {
             'type': 'typosquatting',
             'severity': 'CRITICAL',
-            'ecosystem': 'pypi',
+            'ecosystem': 'python',
             'reason': 'python-dateutil 的拼写错误包，植入后门',
             'damage': '远程代码执行',
             'remediation': '替换为 python-dateutil'
@@ -227,7 +234,7 @@ class DependencyChecker:
         'jeIlyfish': {
             'type': 'typosquatting',
             'severity': 'CRITICAL',
-            'ecosystem': 'pypi',
+            'ecosystem': 'python',
             'reason': 'jellyfish 的 Unicode 混淆包（I vs l），窃取 SSH 密钥',
             'damage': '窃取 SSH 密钥和 GPG 密钥',
             'remediation': '替换为 jellyfish，轮换 SSH 密钥'
@@ -235,7 +242,7 @@ class DependencyChecker:
         'python-binance': {
             'type': 'typosquatting',
             'severity': 'CRITICAL',
-            'ecosystem': 'pypi',
+            'ecosystem': 'python',
             'reason': '伪装 binance SDK，窃取加密货币私钥',
             'damage': '窃取加密资产',
             'remediation': '使用官方 binance-connector-python'
@@ -243,7 +250,7 @@ class DependencyChecker:
         'ctx': {
             'type': 'supply_chain',
             'severity': 'CRITICAL',
-            'ecosystem': 'pypi',
+            'ecosystem': 'python',
             'reason': '2022年5月被劫持，新版本窃取环境变量',
             'damage': '窃取 AWS 凭证和环境变量',
             'remediation': '立即删除并轮换所有凭证'
@@ -251,7 +258,7 @@ class DependencyChecker:
         'phpass': {
             'type': 'supply_chain',
             'severity': 'CRITICAL',
-            'ecosystem': 'pypi',
+            'ecosystem': 'python',
             'reason': '2022年被劫持，窃取环境变量',
             'damage': '窃取凭证',
             'remediation': '立即删除'
@@ -260,7 +267,7 @@ class DependencyChecker:
         'openai-api': {
             'type': 'typosquatting',
             'severity': 'CRITICAL',
-            'ecosystem': 'pypi',
+            'ecosystem': 'python',
             'reason': '伪装 openai 官方包，窃取 API Key',
             'damage': '窃取 OpenAI API Key，造成经济损失',
             'remediation': '使用官方 openai 包'
@@ -268,7 +275,7 @@ class DependencyChecker:
         'opeanai': {
             'type': 'typosquatting',
             'severity': 'CRITICAL',
-            'ecosystem': 'pypi',
+            'ecosystem': 'python',
             'reason': '伪装 openai 的拼写错误包',
             'damage': '窃取 OpenAI API Key',
             'remediation': '替换为 openai'
@@ -276,7 +283,7 @@ class DependencyChecker:
         'anthropic-sdk': {
             'type': 'typosquatting',
             'severity': 'CRITICAL',
-            'ecosystem': 'pypi',
+            'ecosystem': 'python',
             'reason': '伪装 anthropic 官方包',
             'damage': '窃取 Anthropic API Key',
             'remediation': '使用官方 anthropic 包'
@@ -284,7 +291,7 @@ class DependencyChecker:
         'langchain-core-experimental': {
             'type': 'typosquatting',
             'severity': 'WARNING',
-            'ecosystem': 'pypi',
+            'ecosystem': 'python',
             'reason': '冒充 LangChain 官方实验包',
             'damage': '可能窃取 LLM API Key',
             'remediation': '验证是否为 langchain-ai 组织发布'
@@ -708,6 +715,26 @@ class DependencyChecker:
 
         return issues
 
+    def _extract_hook_commands(self, hook_list: list) -> List[str]:
+        """递归提取 hooks 配置中所有 command 字符串。
+
+        处理 Claude Code 两种格式：
+        - 格式A: [{"type": "command", "command": "..."}]
+        - 格式B: [{"matcher": "...", "hooks": [{"type": "command", "command": "..."}]}]
+        """
+        commands = []
+        for item in hook_list:
+            if not isinstance(item, dict):
+                continue
+            # 直接 command 字段
+            if 'command' in item and isinstance(item['command'], str):
+                commands.append(item['command'])
+            # 嵌套 hooks 数组（格式B）
+            nested = item.get('hooks', [])
+            if isinstance(nested, list):
+                commands.extend(self._extract_hook_commands(nested))
+        return commands
+
     def check_claude_settings(self, settings_path: Path) -> List[Dict]:
         """检测 Claude Code settings.json 中的安全风险
 
@@ -720,24 +747,24 @@ class DependencyChecker:
                 data = json.load(f)
 
             # 1. 检查 hooks 配置
+            # Claude Code hooks 有两种格式：
+            # 格式A（旧）: {"hooks": {"PreToolUse": [{"type":"command","command":"..."}]}}
+            # 格式B（新）: {"hooks": {"PreToolUse": [{"matcher":"Bash","hooks":[{"type":"command","command":"..."}]}]}}
             hooks = data.get('hooks', {})
             if isinstance(hooks, dict):
                 for hook_name, hook_config in hooks.items():
+                    # 标准化为 list
                     if isinstance(hook_config, dict):
-                        hook_items = hook_config if 'command' in hook_config else {}
-                        hook_list = [hook_config] if 'command' in hook_config else hook_config.get('items', [])
+                        hook_list = [hook_config]
                     elif isinstance(hook_config, list):
                         hook_list = hook_config
                     else:
                         continue
 
-                    for item in (hook_list if isinstance(hook_list, list) else [hook_list]):
-                        if not isinstance(item, dict):
-                            continue
-                        cmd = item.get('command', '')
-                        if not cmd:
-                            continue
+                    # 递归提取所有 command 字符串，处理嵌套格式
+                    all_commands = self._extract_hook_commands(hook_list)
 
+                    for cmd in all_commands:
                         # 检测外部 URL 调用
                         if re.search(r'(?:curl|wget|nc|fetch)\s+.*https?://', cmd):
                             issues.append({
@@ -919,6 +946,124 @@ class DependencyChecker:
                     'message': f'检测到 {len(b64_matches)} 段疑似 base64 编码内容',
                     'remediation': '解码并审查编码内容'
                 })
+
+        except FileNotFoundError:
+            pass
+
+        return issues
+
+    def check_pipfile(self, pipfile_path: Path) -> List[Dict]:
+        """检测 Pipfile 中的供应链风险（git URL、typosquatting、无版本约束）"""
+        issues = []
+
+        try:
+            with open(pipfile_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            in_packages = False
+            for line_num, raw_line in enumerate(lines, 1):
+                line = raw_line.strip()
+
+                # 检测 section 切换
+                if line in ('[packages]', '[dev-packages]'):
+                    in_packages = True
+                    continue
+                if line.startswith('[') and line not in ('[packages]', '[dev-packages]'):
+                    in_packages = False
+                    continue
+                if not in_packages or not line or line.startswith('#'):
+                    continue
+
+                # 1. 检测 git URL 依赖（Pipfile 格式: pkg = {git = "https://..."} ）
+                if re.search(r'git\s*=\s*["\']https?://', line):
+                    issues.append({
+                        'type': 'git_url_dependency',
+                        'severity': 'CRITICAL',
+                        'category': 'supply_chain',
+                        'file': str(pipfile_path),
+                        'line': line_num,
+                        'content': line[:200],
+                        'message': f'Pipfile 依赖通过 git URL 安装: {line[:80]}',
+                        'remediation': '验证 git URL 是否为官方仓库，改用 PyPI 固定版本'
+                    })
+
+                # 2. 检测无版本约束（"*" 版本）
+                if re.search(r'=\s*["\']?\*["\']?', line):
+                    pkg_name = line.split('=')[0].strip().strip('"\'')
+                    if pkg_name:
+                        issues.append({
+                            'type': 'unpinned_dependency',
+                            'severity': 'WARNING',
+                            'category': 'supply_chain',
+                            'package': pkg_name,
+                            'file': str(pipfile_path),
+                            'line': line_num,
+                            'message': f'Pipfile 依赖 {pkg_name} 使用 "*" 无版本约束',
+                            'remediation': '改用 == 锁定版本或使用 Pipfile.lock'
+                        })
+
+                # 3. typosquatting 检测
+                pkg_match = re.match(r'^([a-zA-Z0-9_.-]+)\s*=', line)
+                if pkg_match:
+                    pkg_name = pkg_match.group(1).strip().strip('"\'')
+                    if pkg_name:
+                        self._check_typosquatting(pkg_name, 'python', pipfile_path, issues)
+
+        except FileNotFoundError:
+            pass
+
+        return issues
+
+    def check_pyproject_deps(self, pyproject_path: Path) -> List[Dict]:
+        """检测 pyproject.toml 中的依赖 typosquatting（PEP 517/518/621 格式）"""
+        issues = []
+
+        try:
+            with open(pyproject_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # PEP 621: [project] dependencies = ["pkg>=1.0", ...]
+            pep621_match = re.search(
+                r'\[project\].*?dependencies\s*=\s*\[(.*?)\]',
+                content, re.DOTALL
+            )
+            if pep621_match:
+                for pkg_name in re.findall(r'["\']([a-zA-Z0-9_.-]+)', pep621_match.group(1)):
+                    self._check_typosquatting(pkg_name, 'python', pyproject_path, issues)
+
+            # Poetry: [tool.poetry.dependencies]
+            poetry_match = re.search(
+                r'\[tool\.poetry\.(?:dev-)?dependencies\](.*?)(?=\[|\Z)',
+                content, re.DOTALL
+            )
+            if poetry_match:
+                for line in poetry_match.group(1).split('\n'):
+                    line = line.strip()
+                    if not line or line.startswith('#') or line.startswith('python'):
+                        continue
+                    m = re.match(r'^([a-zA-Z0-9_.-]+)\s*=', line)
+                    if m:
+                        pkg_name = m.group(1).strip()
+                        self._check_typosquatting(pkg_name, 'python', pyproject_path, issues)
+                        # git 依赖检测
+                        if re.search(r'git\s*=\s*["\']https?://', line):
+                            issues.append({
+                                'type': 'git_url_dependency',
+                                'severity': 'CRITICAL',
+                                'category': 'supply_chain',
+                                'package': pkg_name,
+                                'file': str(pyproject_path),
+                                'message': f'pyproject.toml 依赖 {pkg_name} 通过 git URL 安装',
+                                'remediation': '改用 PyPI 固定版本'
+                            })
+
+            # PDM / Hatch: [tool.pdm.dependencies] / [tool.hatch.envs.*.dependencies]
+            for tool_match in re.finditer(
+                r'\[tool\.(?:pdm|hatch)[^\]]*\]\s*(.*?)(?=\[|\Z)',
+                content, re.DOTALL
+            ):
+                for pkg_name in re.findall(r'["\']([a-zA-Z0-9_.-]+)[>=!<~]?', tool_match.group(1)):
+                    self._check_typosquatting(pkg_name, 'python', pyproject_path, issues)
 
         except FileNotFoundError:
             pass
@@ -1117,6 +1262,77 @@ class AutoSecurityScanner:
 
         return issues
 
+    def _parse_version(self, version: str):
+        """解析版本号为元组"""
+        import re
+        # 移除前缀
+        v = re.sub(r'^[v^~>=<]+', '', str(version))
+        # 分割成数字和非数字部分
+        parts = re.findall(r'\d+|[a-zA-Z]+', v)
+        # 转换为元组
+        result = []
+        for p in parts:
+            try:
+                result.append(int(p))
+            except ValueError:
+                result.append(p)
+        return tuple(result) if result else (0,)
+
+    def _is_version_affected(self, version: str, affected: str) -> bool:
+        """检查版本是否在受影响范围内
+        
+        affected 格式示例：
+        - '>=1.4.0'  - 大于等于1.4.0
+        - '<3.3.4'   - 小于3.3.4
+        - '>=2.0.0'  - 大于等于2.0.0
+        - '0.7.29, 0.8.0, 1.0.0' - 只有这三个精确版本
+        - '全部版本' - 所有版本
+        """
+        if not version or version == 'unknown':
+            return False
+        
+        import re
+        
+        try:
+            v = self._parse_version(version)
+        except Exception:
+            return False
+        
+        # 处理特殊格式
+        if affected == '全部版本':
+            return True
+        
+        # 处理逗号分隔的精确版本列表
+        if ',' in affected:
+            for exact_ver in affected.split(','):
+                target = self._parse_version(exact_ver.strip())
+                if v == target:
+                    return True
+            return False
+        
+        # 处理范围表达式
+        op_match = re.match(r'^([><=]+)\s*([\d.]+)$', affected.strip())
+        if op_match:
+            op, ver = op_match.groups()
+            try:
+                target = self._parse_version(ver)
+                if op == '>=':
+                    return v >= target
+                elif op == '>':
+                    return v > target
+                elif op == '<=':
+                    return v <= target
+                elif op == '<':
+                    return v < target
+                elif op == '==':
+                    return v == target
+                elif op == '!=':
+                    return v != target
+            except Exception:
+                return False
+        
+        return False
+
     def _check_node_module_package(
         self, pkg_dir: Path, pkg_name: str,
         malicious_set: set, issues: List[Dict]
@@ -1138,6 +1354,12 @@ class AutoSecurityScanner:
             pass
 
         mal_info = self.dependency_checker.MALICIOUS_PACKAGES.get(pkg_name, {})
+        affected_versions = mal_info.get('affected_versions', '全部版本')
+        
+        # 检查版本是否受影响
+        if not self._is_version_affected(version, affected_versions):
+            return  # 版本不受影响，跳过
+        
         issues.append({
             'type': 'malicious_package_in_node_modules',
             'severity': mal_info.get('severity', 'CRITICAL'),
@@ -1148,7 +1370,7 @@ class AutoSecurityScanner:
             'reason': mal_info.get('reason', '已知恶意包'),
             'damage': mal_info.get('damage', ''),
             'remediation': mal_info.get('remediation', '立即删除'),
-            'message': f'发现已知恶意包：{pkg_name} v{version}'
+            'message': f'发现已知恶意包：{pkg_name} v{version}（受影响版本：{affected_versions}）'
         })
     
     def auto_scan(self, path: str = '.', recursive: bool = True) -> Dict:
@@ -1218,7 +1440,15 @@ class AutoSecurityScanner:
 
             pyproject_toml = proj_path / 'pyproject.toml'
             if pyproject_toml.exists():
+                # 结构检测（构建后端、入口点）
                 _collect(self.dependency_checker.check_pyproject_toml(pyproject_toml))
+                # 依赖 typosquatting 检测
+                _collect(self.dependency_checker.check_pyproject_deps(pyproject_toml))
+
+            # Pipfile
+            pipfile = proj_path / 'Pipfile'
+            if pipfile.exists():
+                _collect(self.dependency_checker.check_pipfile(pipfile))
 
             # ===== AI 助手配置检查 =====
 
@@ -1276,6 +1506,7 @@ class AutoSecurityScanner:
                 proj_path / '.cursorrules',
                 proj_path / 'package.json',
                 proj_path / 'requirements.txt',
+                proj_path / 'Pipfile',
                 proj_path / 'setup.py',
                 proj_path / 'pyproject.toml',
             ])

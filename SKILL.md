@@ -1,6 +1,6 @@
 # AI Security Scanner Skill
 
-跨平台 AI Coding 辅助安全监控技能，支持检测 Claude Code、Cursor 等 AI 助手的 hooks 配置风险、MCP 服务器攻击、供应链投毒攻击（npm/PyPI/Rust）。
+跨平台 AI Coding 辅助安全监控技能，支持 **OpenClaw** 和 **Claude Code** 两个平台，检测 Claude Code、Cursor 等 AI 助手的 hooks 配置风险、MCP 服务器攻击、Prompt 注入、供应链投毒攻击（npm/PyPI/Rust）。
 
 ## 📦 技能信息
 
@@ -13,6 +13,32 @@ platforms: [Windows, macOS, Linux]
 category: security
 ```
 
+## 🚀 安装
+
+### OpenClaw
+```bash
+openclaw skills install ai-security-scanner
+```
+
+### Claude Code
+```bash
+# macOS / Linux
+cp .claude/commands/security-scan.md ~/.claude/commands/
+
+# Windows
+Copy-Item .claude\commands\security-scan.md ~\.claude\commands\
+```
+
+重启 Claude Code 后使用：`/security-scan [path]`
+
+### 一键安装（含两个平台）
+```bash
+git clone https://github.com/javamagong/ai-security-scanner.git ~/.ai-security-scanner
+bash ~/.ai-security-scanner/install.sh        # macOS/Linux
+# 或
+powershell -File ~\.ai-security-scanner\install.ps1  # Windows
+```
+
 ## 🎯 核心功能
 
 ### 1. AI 助手 Hooks 检测
@@ -20,7 +46,6 @@ category: security
 | AI 助手 | 配置文件 | 检测内容 |
 |---------|---------|----------|
 | Claude Code | `.claude/settings.json` | hooks、MCP servers、permissions |
-| Claude Code | `.claude/config.json` | hooks 配置 |
 | Cursor | `.cursorrules` | Prompt 注入 |
 | 通用 | `CLAUDE.md` | Prompt 注入攻击 |
 
@@ -32,11 +57,20 @@ category: security
 - ✅ 拼写错误攻击（axios/axois、lodash/ladash 等）
 
 #### Python
-- ✅ `requirements.txt` git URL 依赖检测
-- ✅ 非官方 PyPI 索引（依赖混淆攻击）
-- ✅ 版本未锁定检测
-- ✅ `setup.py` 恶意代码检测（cmdclass、os.system、subprocess）
-- ✅ `pyproject.toml` 可疑构建后端
+- ✅ `requirements.txt` — git URL 依赖、非官方 PyPI 索引、版本未锁定、直接 URL 安装
+- ✅ `Pipfile` — git 依赖、通配符版本 `"*"`、拼写错误包名
+- ✅ `pyproject.toml` — PEP 621 / Poetry / PDM 依赖解析
+- ✅ `setup.py` — cmdclass 钩子、os.system/subprocess、网络请求
+
+**AI 生态专项保护**（针对 API Key 窃取攻击）：
+
+| 官方包 | 检测的恶意变体 |
+|--------|--------------|
+| `openai` | opeanai, open-ai, openaii |
+| `anthropic` | antrhopic, anthropicc, anthopic |
+| `litellm` | litelm, lite-llm, litelllm |
+| `langchain` | langcain, lang-chain, langchian |
+| `transformers` | tranformers, trannsformers |
 
 #### Rust
 - ✅ `Cargo.toml` 未固定版本依赖
@@ -46,46 +80,65 @@ category: security
 
 检测 `.claude/settings.json` 中的 `mcpServers` 配置：
 
-- ✅ 外部 URL 连接检测
+- ✅ 外部 URL 连接检测（非 localhost 地址）
 - ✅ 可疑命令注入检测
-- ✅ 敏感环境变量透传检测
+- ✅ 敏感环境变量透传检测（API_KEY、TOKEN 等）
 
 ### 4. Prompt 注入攻击检测
 
 检测 `CLAUDE.md` 和 `.cursorrules` 中的：
 
-- ✅ 指令覆盖攻击
-- ✅ 角色扮演攻击
-- ✅ 紧急指令伪装
-- ✅ 隐藏 Unicode 字符
-- ✅ Base64 编码内容
+- ✅ 指令覆盖攻击（`Ignore previous instructions`）
+- ✅ 角色扮演攻击（`You are now a different AI`）
+- ✅ 紧急指令伪装（`URGENT: Override all safety`）
+- ✅ 隐藏 Unicode 字符（零宽字符 `\u200b\u200c\u200d`）
+- ✅ Base64 编码隐藏指令
 
 ### 5. GitHub Actions 安全检测
 
-- ✅ 未固定版本的 Action（使用分支名）
-- ✅ Secrets 泄露到日志
+- ✅ 未固定版本的 Action（`@main`、`@master`、`@HEAD`）
+- ✅ Secrets 泄露到日志（`echo ${{ secrets.KEY }}`）
 - ✅ `pull_request_target` 危险触发器
+
+### 6. 代码混淆检测
+
+- ✅ OBFUSC-001: 十六进制编码字符串（`\x63\x75\x72\x6c`）
+- ✅ OBFUSC-002: `exec(base64.b64decode(...))`
+- ✅ OBFUSC-003: `__import__('subprocess')` 动态导入
+- ✅ OBFUSC-004: `chr()` 逐字符构建字符串
+- ✅ OBFUSC-005: `exec(compile(source, ...))`
+- ✅ OBFUSC-006: `exec(bytes.fromhex(...))`
 
 ## 🚀 安装方式
 
-### 方式 1: 作为 LobsterAI Skill 安装
+### 方式 1: OpenClaw（推荐）
 
 ```bash
 openclaw skills install ai-security-scanner
 ```
 
-### 方式 2: 独立使用
+### 方式 2: Claude Code
 
 ```bash
-# 克隆仓库
-git clone https://github.com/javamagong/ai-security-scanner.git
-cd ai-security-scanner
+# macOS / Linux
+cp .claude/commands/security-scan.md ~/.claude/commands/
 
-# 安装依赖
-pip install -r requirements.txt
+# Windows
+Copy-Item .claude\commands\security-scan.md ~\.claude\commands\
+```
 
-# 运行扫描
-python ai-scanner.py -d /path/to/project
+### 方式 3: 一键安装（自动配置两个平台）
+
+```bash
+git clone https://github.com/javamagong/ai-security-scanner.git ~/.ai-security-scanner
+bash ~/.ai-security-scanner/install.sh
+```
+
+### 方式 4: 独立使用
+
+```bash
+pip install pyyaml colorama watchdog
+python auto_scanner.py -d /path/to/project
 ```
 
 ## 💡 使用示例

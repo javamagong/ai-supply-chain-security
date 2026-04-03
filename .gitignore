@@ -65,3 +65,8 @@ Thumbs.db
 reports/*.json
 *.log
 .ai_scanner_cache.json
+
+# Claude Code local session files (do not commit)
+.claude/settings.local.json
+.claude/scheduled_tasks.json
+.claude/scheduled_tasks.lock
