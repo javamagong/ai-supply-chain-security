@@ -1,15 +1,15 @@
 # AI Security Scanner
 
-[🏠 Homepage](https://github.com/javamagong/ai-supply-chain-security) | [📦 Issues](https://github.com/javamagong/ai-supply-chain-security/issues) | [📄 License: MIT-0](https://github.com/javamagong/ai-supply-chain-security/blob/main/LICENSE)
+[ Homepage](https://github.com/javamagong/ai-supply-chain-security) | [ Issues](https://github.com/javamagong/ai-supply-chain-security/issues) | [ License: MIT-0](https://github.com/javamagong/ai-supply-chain-security/blob/main/LICENSE)
 
-> 🔒 Cross-platform supply chain security scanner for the AI coding era �?Detect malicious hooks, MCP servers, prompt injection, and supply chain attacks
+>  Cross-platform supply chain security scanner for the AI coding era �?Detect malicious hooks, MCP servers, prompt injection, and supply chain attacks
 
-## 🌐 Language
+##  Language
 
 - **[English](README.md)** (This document)
 - **[中文](README_ZH.md)** (中文文档)
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### OpenClaw
 
@@ -97,7 +97,7 @@ Scans `CLAUDE.md` and `.cursorrules`:
 - �?OBFUSC-005: `exec(compile(source, ...))`
 - �?OBFUSC-006: `exec(bytes.fromhex(...))`
 
-## 🛡�?AI Ecosystem Typosquatting Protection
+## �?AI Ecosystem Typosquatting Protection
 
 These packages are high-value targets because they handle API keys:
 
@@ -111,7 +111,7 @@ These packages are high-value targets because they handle API keys:
 | `huggingface-hub` | hugginface-hub, huggingfce-hub |
 | `chromadb` | chroma-db, cromadb, chromaddb |
 
-## 🔍 Detection Rules
+##  Detection Rules
 
 ### Critical Rules
 
@@ -146,7 +146,7 @@ These packages are high-value targets because they handle API keys:
 | CLAUDE-002 | Prompt injection patterns | AI hijacking |
 | OBFUSC-001 | Hex-encoded strings | Hidden commands |
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 ai-supply-chain-security/
@@ -167,7 +167,7 @@ ai-supply-chain-security/
 └── .github/workflows/ci.yml # CI pipeline
 ```
 
-## 🧪 Testing
+##  Testing
 
 ```bash
 pip install pytest pyyaml
@@ -176,7 +176,7 @@ pytest tests/ -v
 
 65 test cases covering all rule categories.
 
-## 🤝 Contributing
+##  Contributing
 
 ### Add a Malicious Package
 
@@ -205,7 +205,7 @@ pytest tests/ -v
 }
 ```
 
-## 📄 License
+##  License
 
 MIT License
 
