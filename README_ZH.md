@@ -1,111 +1,168 @@
 # AI Security Scanner
 
-> 🔒 AI Coding 时代的供应链�?AI hooks 安全扫描�?> 支持 **Claude Code** · **OpenClaw** · **CLI** · **CI/CD**
+AI Coding 时代的供应链与 AI hooks 安全扫描器
+支持 **Claude Code** · **OpenClaw** · **CLI** · **CI/CD**
 
-[🏠 主页](https://github.com/javamagong/ai-supply-chain-security) | [📦 Issues](https://github.com/javamagong/ai-supply-chain-security/issues) | [📄 License: MIT-0](https://github.com/javamagong/ai-supply-chain-security/blob/main/LICENSE)
-
-## 🌐 Language
-
-- **[English](README.md)** (English Document)
-- **[中文](README_ZH.md)** (本文�?
+[主页](https://github.com/javamagong/ai-supply-chain-security) | [问题](https://github.com/javamagong/ai-supply-chain-security/issues) | [许可证: MIT](https://github.com/javamagong/ai-supply-chain-security/blob/main/LICENSE)
 
 ---
 
-## Why This Tool?
+## 为什么选择这个工具?
 
-AI coding assistants introduce new attack surfaces that traditional scanners miss:
+AI 编程助手引入了传统扫描器无法检测的新攻击面:
 
-- Malicious hooks in `.claude/settings.json` silently exfiltrate your source code on every commit
-- Fake MCP servers steal your API keys while appearing as legitimate tools
-- Typosquatted packages like `opeanai` and `litelm` target AI developers specifically
-- Prompt injection in `CLAUDE.md` hijacks your AI assistant's behavior
+- `.claude/settings.json` 中的恶意 hooks 会在每次提交时静默泄露源代码
+- 假冒 MCP 服务器窃取 API 密钥
+- 拼写抢注包如 `opeanai` 和 `litelm` 专门针对 AI 开发者
+- `CLAUDE.md` 中的 Prompt 注入劫持 AI 助手行为
 
 ---
 
-## Install
+## 核心功能
 
-### For AI Agents (Claude Code / OpenClaw / any agent)
+### 1. AI 助手 Hooks 检测
 
-Tell your AI agent:
+扫描并修复:
+- Claude Code `.claude/settings.json` 配置
+- Cursor `.cursorrules` 文件
+- 通用 `CLAUDE.md` 系统提示
 
-```
-Install the ai-supply-chain-security skill from https://github.com/javamagong/ai-supply-chain-security
-```
+### 2. MCP 服务器安全
 
-The agent should run:
+检测:
+- 未经验证的 MCP 服务器源
+- 过度权限请求
+- 可疑的环境变量访问
 
-```bash
-# Step 1 �?Clone
-git clone https://github.com/javamagong/ai-supply-chain-security.git ~/.ai-supply-chain-security
+### 3. Prompt 注入检测
 
-# Step 2 �?Run installer
-# macOS / Linux:
-bash ~/.ai-supply-chain-security/install.sh
+识别:
+- 指令覆盖攻击
+- 角色劫持尝试
+- 虚假紧急指令
+- 隐藏 Unicode 字符
+- Base64 编码的隐藏指令
 
-# Windows (PowerShell):
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.ai-supply-chain-security\install.ps1"
-```
+### 4. 供应链安全
 
-The installer automatically:
-- Installs Python dependencies (`pyyaml colorama watchdog`)
-- Registers the `/security-scan` command in Claude Code (if installed)
-- Shows OpenClaw activation command (if installed)
+**npm 包:**
+- 已知恶意包 (colors, coa, rc 等)
+- 危险生命周期脚本
+- 依赖混淆攻击
+- 拼写抢注
 
-### OpenClaw
+**Python 包:**
+- setup.py 中的恶意代码
+- pyproject.toml 可疑配置
+- Git URL 依赖风险
 
+**Rust 包:**
+- build.rs 恶意代码
+- 可疑的 cargo.toml
+
+### 5. GitHub Actions 安全
+
+- 未固定的 Action 版本
+- 密钥泄露到日志
+- 危险的触发器配置
+
+---
+
+## 快速开始
+
+### OpenClaw 安装
 ```bash
 openclaw skills install ai-supply-chain-security
 ```
 
-### Claude Code (manual)
-
+### 手动安装
 ```bash
-# macOS / Linux
-cp ~/.ai-supply-chain-security/.claude/commands/security-scan.md ~/.claude/commands/
-
-# Windows
-Copy-Item ~\.ai-supply-chain-security\.claude\commands\security-scan.md ~\.claude\commands\
-```
-
-Restart Claude Code, then use: `/security-scan [path]`
-
-### CLI only
-
-```bash
-pip install pyyaml colorama watchdog
-python ~/.ai-supply-chain-security/auto_scanner.py -d /path/to/project
+git clone https://github.com/javamagong/ai-supply-chain-security.git
+cd ai-supply-chain-security
+python ai_scanner.py --help
 ```
 
 ---
 
-## Usage
+## 使用指南
 
-### Claude Code
-
-```
-/security-scan                      # scan current directory
-/security-scan /path/to/project     # scan specific directory
-```
-
-### CLI
-
+### 基本扫描
 ```bash
-python auto_scanner.py                              # scan current dir
-python auto_scanner.py -d /path/to/project          # scan specific dir
-python auto_scanner.py -d . -f json -o report.json  # JSON report
-python auto_scanner.py -d . --ci                    # CI/CD mode (exit 2 on CRITICAL)
-python auto_scanner.py -d . --watch --interval 60   # continuous monitoring
+# 扫描当前目录
+python ai_scanner.py
+
+# 扫描指定目录
+python ai_scanner.py -d /path/to/project
+
+# 完整扫描
+python ai_scanner.py -d /path/to/project --full
 ```
 
-### GitHub Actions
+### 自动发现扫描
+```bash
+# 扫描目录下的所有项目
+python auto_scanner.py -d /path/to/projects
+
+# 只显示严重问题
+python auto_scanner.py -d /path/to/projects --severity critical
+```
+
+### 输出格式
+```bash
+# 文本输出 (默认)
+python ai_scanner.py -f text
+
+# JSON 输出
+python ai_scanner.py -f json -o report.json
+
+# Markdown 报告
+python ai_scanner.py -f markdown -o report.md
+```
+
+---
+
+## 配置
+
+编辑 `config.yaml`:
 
 ```yaml
-- name: AI Security Scan
+scan_paths:
+  - "./"
+  - "../projects"
+
+notification:
+  webhook:
+    enabled: false
+    url: "${SECURITY_WEBHOOK_URL}"
+  email:
+    enabled: false
+    smtp_host: "${SMTP_HOST}"
+    smtp_port: 587
+    from: "${SMTP_FROM}"
+    to: "${SMTP_TO}"
+    password: "${SMTP_PASSWORD}"
+
+severity_threshold: "medium"
+
+auto_fix: false
+```
+
+---
+
+## CI/CD 集成
+
+### GitHub Actions
+```yaml
+- name: Security Scan
+  uses: actions/checkout@v3
+  
+- name: Run AI Security Scanner
   run: |
-    pip install pyyaml colorama
-    python auto_scanner.py --ci -f json -o security-report.json
-- uses: actions/upload-artifact@v4
-  if: always()
+    pip install -r requirements.txt
+    python ai_scanner.py -d . -f json -o security-report.json
+    
+- name: Upload Report
+  uses: actions/upload-artifact@v3
   with:
     name: security-report
     path: security-report.json
@@ -113,116 +170,19 @@ python auto_scanner.py -d . --watch --interval 60   # continuous monitoring
 
 ---
 
-## What It Detects
+## 要求
 
-| Category | Coverage |
-|----------|---------|
-| **AI Hooks** | Claude Code hooks exfiltration, credential theft, dangerous commands |
-| **MCP Servers** | External URL connections, command injection, env var exposure |
-| **Prompt Injection** | Instruction override, role hijacking, hidden Unicode, Base64 directives |
-| **npm Supply Chain** | Malicious lifecycle scripts, 20+ known malicious packages, typosquatting |
-| **Python Supply Chain** | requirements.txt, Pipfile, pyproject.toml, setup.py �?git URLs, unofficial indexes, unpinned versions |
-| **Rust Supply Chain** | Cargo.toml �?unpinned versions, git URL deps |
-| **GitHub Actions** | Unpinned action versions, secrets in logs, `pull_request_target` |
-| **Code Obfuscation** | exec+base64, `__import__`, hex strings, chr() chains |
-
-### AI Ecosystem Typosquatting Protection
-
-High-value targets (packages that handle API keys):
-
-| Official | Detected Variants |
-|----------|------------------|
-| `openai` | opeanai, open-ai, openi, openaii |
-| `anthropic` | antrhopic, anthropicc, anthopic |
-| `litellm` | litelm, lite-llm, litelllm |
-| `langchain` | langcain, lang-chain, langchian |
-| `transformers` | tranformers, trannsformers |
-
-### Known Malicious Packages (30+)
-
-**npm**: event-stream, flatmap-stream, crossenv, ua-parser-js, colors, node-ipc, coa, rc, lofygang
-**PyPI**: colourama, ctx, openai-api, opeanai, python3-dateutil, jeIlyfish, python-binance
+- Python 3.8+
+- 依赖见 `requirements.txt`
 
 ---
 
-## Detection Rules
+## 许可证
 
-```
-HOOK-001~022    Remote execution, destructive commands, privilege escalation, backdoors
-SUPPLY-001~021  npm / Python / Rust supply chain
-CLAUDE-001~005  AI hooks, MCP servers, prompt injection
-OBFUSC-001~006  Code obfuscation and dynamic execution
-```
-
-30+ rules · CRITICAL / WARNING / INFO severity
+MIT - 详见 LICENSE 文件
 
 ---
 
-## Project Structure
+## 作者
 
-```
-ai-supply-chain-security/
-├── auto_scanner.py           # Main scanner (recommended entry point)
-├── ai_scanner.py             # Rule engine (SECURITY_RULES definitions)
-├── ai-scanner.py             # Lightweight CLI entry point
-├── install.sh                # One-click installer (macOS/Linux)
-├── install.ps1               # One-click installer (Windows)
-├── config.yaml               # Configuration
-├── requirements.txt          # pyyaml, colorama, watchdog
-├── _meta.json                # OpenClaw / ClawHub metadata
-├── SKILL.md                  # OpenClaw skill description
-├── .claude/
-�?  └── commands/
-�?      └── security-scan.md  # Claude Code /security-scan command
-├── tests/
-�?  └── test_scanner.py       # 65 test cases
-├── examples/                 # Clean vs malicious examples
-└── .github/workflows/ci.yml  # CI pipeline
-```
-
----
-
-## Contributing
-
-### Add a Malicious Package
-
-```python
-# auto_scanner.py �?MALICIOUS_PACKAGES
-'package-name': {
-    'type': 'typosquatting',    # typosquatting | supply_chain | hijacked
-    'severity': 'CRITICAL',
-    'ecosystem': 'python',      # npm | python | rust
-    'reason': 'Incident description (year)',
-    'damage': 'Impact',
-    'remediation': 'Action to take'
-}
-```
-
-### Add a Detection Rule
-
-```python
-# ai_scanner.py �?SECURITY_RULES
-'HOOK-XXX': {
-    'pattern': r'your_regex',
-    'severity': 'CRITICAL',     # CRITICAL | WARNING | INFO
-    'category': 'code_execution',
-    'description': 'What it detects',
-    'recommendation': 'How to fix'
-}
-```
-
-### Run Tests
-
-```bash
-pip install pytest pyyaml && pytest tests/ -v
-```
-
----
-
-## License
-
-MIT �?See [LICENSE](LICENSE)
-
----
-
-**v2.0.0** · 2026-04-03 · [JavaMaGong](https://github.com/javamagong)
+JavaMaGong - https://github.com/javamagong

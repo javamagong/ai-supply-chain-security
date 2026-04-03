@@ -10,7 +10,7 @@
   "requirements": {
     "python": "3.8"
   },
-  "license": "MIT-0",
+  "license": "MIT",
   "author": "JavaMaGong",
   "homepage": "https://github.com/javamagong/ai-supply-chain-security",
   "repository": "https://github.com/javamagong/ai-supply-chain-security",
