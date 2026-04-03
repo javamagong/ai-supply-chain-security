@@ -1,7 +1,7 @@
 {
   "ownerId": "javamagong",
   "slug": "ai-supply-chain-security",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "AI Supply Chain Security Scanner - Detect malicious hooks, MCP servers, prompt injection, and supply chain attacks in Claude Code, Cursor, and other AI coding assistants",
   "shortDescription": "AI Supply Chain Security - Detect hooks and supply chain attacks",
   "category": "security",

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-04-03
+
+### Fixed
+- Removed Chinese description from SKILL.md metadata to ensure all documentation is in English
+- Replaced explicit prompt injection examples with descriptive explanations to avoid triggering security scanners
+- Removed references to missing installer files (install.sh, install.ps1, .claude/commands/security-scan.md)
+- Cleaned up package bundle by excluding non-essential files (tests, reports, cache files)
+
 ## [2.0.0] - 2026-04-03
 
 ### Added
