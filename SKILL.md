@@ -1,6 +1,6 @@
 # AI Security Scanner Skill
 
-跨平台 AI Coding 辅助安全监控技能，支持 **OpenClaw** 和 **Claude Code** 两个平台，检测 Claude Code、Cursor 等 AI 助手的 hooks 配置风险、MCP 服务器攻击、Prompt 注入、供应链投毒攻击（npm/PyPI/Rust）。
+Cross-platform AI Coding security scanner for **OpenClaw** and **Claude Code**, detecting hooks configuration risks, MCP server attacks, prompt injection, and supply chain attacks (npm/PyPI/Rust).
 
 ## 📦 技能信息
 

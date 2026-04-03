@@ -1,19 +1,19 @@
 {
   "ownerId": "javamagong",
-  "slug": "ai-security-scanner",
+  "slug": "ai-supply-chain-security",
   "version": "2.0.0",
-  "description": "跨平台 AI Coding 辅助安全监控技能，检测 Claude Code、Cursor 等 AI 助手的 hooks 配置风险和供应链投毒攻击",
-  "shortDescription": "AI Coding 辅助安全监控，检测 hooks 和供应链投毒",
+  "description": "AI Supply Chain Security Scanner - Detect malicious hooks, MCP servers, prompt injection, and supply chain attacks in Claude Code, Cursor, and other AI coding assistants",
+  "shortDescription": "AI Supply Chain Security - Detect hooks and supply chain attacks",
   "category": "security",
-  "tags": ["security", "ai", "coding", "claude-code", "cursor", "supply-chain", "hooks", "npm", "python"],
+  "tags": ["security", "ai", "supply-chain", "coding", "claude-code", "cursor", "hooks", "npm", "python", "mcp", "prompt-injection", "malicious-packages"],
   "platforms": ["windows", "macos", "linux"],
   "requirements": {
     "python": "3.8"
   },
-  "license": "MIT",
+  "license": "MIT-0",
   "author": "JavaMaGong",
-  "homepage": "https://github.com/javamagong/ai-security-scanner",
-  "repository": "https://github.com/javamagong/ai-security-scanner",
-  "issues": "https://github.com/javamagong/ai-security-scanner/issues",
-  "publishedAt": 1775130508000
+  "homepage": "https://github.com/javamagong/ai-supply-chain-security",
+  "repository": "https://github.com/javamagong/ai-supply-chain-security",
+  "issues": "https://github.com/javamagong/ai-supply-chain-security/issues",
+  "publishedAt": 1775180508000
 }
