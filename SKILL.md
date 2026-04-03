@@ -5,38 +5,28 @@ Cross-platform AI Coding security scanner for **OpenClaw** and **Claude Code**, 
 ## 📦 技能信息
 
 ```yaml
-name: ai-security-scanner
+name: ai-supply-chain-security
 version: 2.0.0
-description: 跨平台 AI Coding 辅助安全监控，检测 hooks 配置、MCP 服务器、供应链投毒
+description: Cross-platform AI Coding security scanner - Detect hooks, MCP servers, prompt injection, and supply chain attacks
 author: JavaMaGong
 platforms: [Windows, macOS, Linux]
 category: security
 ```
 
-## 🚀 安装
+## 🚀 Installation
 
 ### OpenClaw
 ```bash
-openclaw skills install ai-security-scanner
+openclaw skills install ai-supply-chain-security
 ```
 
-### Claude Code
+### Manual Installation
 ```bash
-# macOS / Linux
-cp .claude/commands/security-scan.md ~/.claude/commands/
+# Clone repository
+git clone https://github.com/javamagong/ai-supply-chain-security.git
 
-# Windows
-Copy-Item .claude\commands\security-scan.md ~\.claude\commands\
-```
-
-重启 Claude Code 后使用：`/security-scan [path]`
-
-### 一键安装（含两个平台）
-```bash
-git clone https://github.com/javamagong/ai-security-scanner.git ~/.ai-security-scanner
-bash ~/.ai-security-scanner/install.sh        # macOS/Linux
-# 或
-powershell -File ~\.ai-security-scanner\install.ps1  # Windows
+# Run directly (no install script needed)
+python ai-scanner.py --help
 ```
 
 ## 🎯 核心功能
@@ -84,15 +74,15 @@ powershell -File ~\.ai-security-scanner\install.ps1  # Windows
 - ✅ 可疑命令注入检测
 - ✅ 敏感环境变量透传检测（API_KEY、TOKEN 等）
 
-### 4. Prompt 注入攻击检测
+### 4. Prompt Injection Detection
 
-检测 `CLAUDE.md` 和 `.cursorrules` 中的：
+Detects suspicious patterns in `CLAUDE.md` and `.cursorrules`:
 
-- ✅ 指令覆盖攻击（`Ignore previous instructions`）
-- ✅ 角色扮演攻击（`You are now a different AI`）
-- ✅ 紧急指令伪装（`URGENT: Override all safety`）
-- ✅ 隐藏 Unicode 字符（零宽字符 `\u200b\u200c\u200d`）
-- ✅ Base64 编码隐藏指令
+- ✅ Instruction override patterns (e.g., phrases attempting to clear previous context)
+- ✅ Role hijacking attempts (e.g., claims to change AI identity)
+- ✅ Fake urgency commands (e.g., URGENT override requests)
+- ✅ Hidden Unicode characters (zero-width chars like U+200B, U+200C, U+200D)
+- ✅ Base64 encoded hidden instructions
 
 ### 5. GitHub Actions 安全检测
 
