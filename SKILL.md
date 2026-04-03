@@ -1,4 +1,4 @@
-# AI Security Scanner Skill
+# AI Supply Chain Security
 
 Cross-platform AI Coding security scanner for **OpenClaw** and **Claude Code**, detecting hooks configuration risks, MCP server attacks, prompt injection, and supply chain attacks (npm/PyPI/Rust).
 

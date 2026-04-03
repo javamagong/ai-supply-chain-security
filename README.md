@@ -1,6 +1,6 @@
-# AI Security Scanner
+# AI Supply Chain Security
 
-[Homepage](https://github.com/javamagong/ai-supply-chain-security) | [Issues](https://github.com/javamagong/ai-supply-chain-security/issues) | [License: MIT-0](https://github.com/javamagong/ai-supply-chain-security/blob/main/LICENSE)
+[Homepage](https://github.com/javamagong/ai-supply-chain-security) | [Issues](https://github.com/javamagong/ai-supply-chain-security/issues) | [License: MIT](https://github.com/javamagong/ai-supply-chain-security/blob/main/LICENSE)
 
 Cross-platform supply chain security scanner for the AI coding era - Detect malicious hooks, MCP servers, prompt injection, and supply chain attacks
 

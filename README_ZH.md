@@ -1,4 +1,4 @@
-# AI Security Scanner
+# AI Supply Chain Security
 
 AI Coding 时代的供应链与 AI hooks 安全扫描器
 支持 **Claude Code** · **OpenClaw** · **CLI** · **CI/CD**
