@@ -1,14 +1,13 @@
 # AI Security Scanner
 
-> 🔒 AI Coding 时代的供应链与 AI hooks 安全扫描器
-> 支持 **Claude Code** · **OpenClaw** · **CLI** · **CI/CD**
+> 🔒 AI Coding 时代的供应链�?AI hooks 安全扫描�?> 支持 **Claude Code** · **OpenClaw** · **CLI** · **CI/CD**
 
 [🏠 主页](https://github.com/javamagong/ai-supply-chain-security) | [📦 Issues](https://github.com/javamagong/ai-supply-chain-security/issues) | [📄 License: MIT-0](https://github.com/javamagong/ai-supply-chain-security/blob/main/LICENSE)
 
 ## 🌐 Language
 
 - **[English](README.md)** (English Document)
-- **[中文](README_ZH.md)** (本文档)
+- **[中文](README_ZH.md)** (本文�?
 
 ---
 
@@ -30,21 +29,21 @@ AI coding assistants introduce new attack surfaces that traditional scanners mis
 Tell your AI agent:
 
 ```
-Install the ai-security-scanner skill from https://github.com/javamagong/ai-security-scanner
+Install the ai-supply-chain-security skill from https://github.com/javamagong/ai-supply-chain-security
 ```
 
 The agent should run:
 
 ```bash
-# Step 1 — Clone
-git clone https://github.com/javamagong/ai-security-scanner.git ~/.ai-security-scanner
+# Step 1 �?Clone
+git clone https://github.com/javamagong/ai-supply-chain-security.git ~/.ai-supply-chain-security
 
-# Step 2 — Run installer
+# Step 2 �?Run installer
 # macOS / Linux:
-bash ~/.ai-security-scanner/install.sh
+bash ~/.ai-supply-chain-security/install.sh
 
 # Windows (PowerShell):
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.ai-security-scanner\install.ps1"
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.ai-supply-chain-security\install.ps1"
 ```
 
 The installer automatically:
@@ -55,17 +54,17 @@ The installer automatically:
 ### OpenClaw
 
 ```bash
-openclaw skills install ai-security-scanner
+openclaw skills install ai-supply-chain-security
 ```
 
 ### Claude Code (manual)
 
 ```bash
 # macOS / Linux
-cp ~/.ai-security-scanner/.claude/commands/security-scan.md ~/.claude/commands/
+cp ~/.ai-supply-chain-security/.claude/commands/security-scan.md ~/.claude/commands/
 
 # Windows
-Copy-Item ~\.ai-security-scanner\.claude\commands\security-scan.md ~\.claude\commands\
+Copy-Item ~\.ai-supply-chain-security\.claude\commands\security-scan.md ~\.claude\commands\
 ```
 
 Restart Claude Code, then use: `/security-scan [path]`
@@ -74,7 +73,7 @@ Restart Claude Code, then use: `/security-scan [path]`
 
 ```bash
 pip install pyyaml colorama watchdog
-python ~/.ai-security-scanner/auto_scanner.py -d /path/to/project
+python ~/.ai-supply-chain-security/auto_scanner.py -d /path/to/project
 ```
 
 ---
@@ -122,8 +121,8 @@ python auto_scanner.py -d . --watch --interval 60   # continuous monitoring
 | **MCP Servers** | External URL connections, command injection, env var exposure |
 | **Prompt Injection** | Instruction override, role hijacking, hidden Unicode, Base64 directives |
 | **npm Supply Chain** | Malicious lifecycle scripts, 20+ known malicious packages, typosquatting |
-| **Python Supply Chain** | requirements.txt, Pipfile, pyproject.toml, setup.py — git URLs, unofficial indexes, unpinned versions |
-| **Rust Supply Chain** | Cargo.toml — unpinned versions, git URL deps |
+| **Python Supply Chain** | requirements.txt, Pipfile, pyproject.toml, setup.py �?git URLs, unofficial indexes, unpinned versions |
+| **Rust Supply Chain** | Cargo.toml �?unpinned versions, git URL deps |
 | **GitHub Actions** | Unpinned action versions, secrets in logs, `pull_request_target` |
 | **Code Obfuscation** | exec+base64, `__import__`, hex strings, chr() chains |
 
@@ -162,7 +161,7 @@ OBFUSC-001~006  Code obfuscation and dynamic execution
 ## Project Structure
 
 ```
-ai-security-scanner/
+ai-supply-chain-security/
 ├── auto_scanner.py           # Main scanner (recommended entry point)
 ├── ai_scanner.py             # Rule engine (SECURITY_RULES definitions)
 ├── ai-scanner.py             # Lightweight CLI entry point
@@ -173,10 +172,10 @@ ai-security-scanner/
 ├── _meta.json                # OpenClaw / ClawHub metadata
 ├── SKILL.md                  # OpenClaw skill description
 ├── .claude/
-│   └── commands/
-│       └── security-scan.md  # Claude Code /security-scan command
+�?  └── commands/
+�?      └── security-scan.md  # Claude Code /security-scan command
 ├── tests/
-│   └── test_scanner.py       # 65 test cases
+�?  └── test_scanner.py       # 65 test cases
 ├── examples/                 # Clean vs malicious examples
 └── .github/workflows/ci.yml  # CI pipeline
 ```
@@ -188,7 +187,7 @@ ai-security-scanner/
 ### Add a Malicious Package
 
 ```python
-# auto_scanner.py → MALICIOUS_PACKAGES
+# auto_scanner.py �?MALICIOUS_PACKAGES
 'package-name': {
     'type': 'typosquatting',    # typosquatting | supply_chain | hijacked
     'severity': 'CRITICAL',
@@ -202,7 +201,7 @@ ai-security-scanner/
 ### Add a Detection Rule
 
 ```python
-# ai_scanner.py → SECURITY_RULES
+# ai_scanner.py �?SECURITY_RULES
 'HOOK-XXX': {
     'pattern': r'your_regex',
     'severity': 'CRITICAL',     # CRITICAL | WARNING | INFO
@@ -222,7 +221,7 @@ pip install pytest pyyaml && pytest tests/ -v
 
 ## License
 
-MIT — See [LICENSE](LICENSE)
+MIT �?See [LICENSE](LICENSE)
 
 ---
 

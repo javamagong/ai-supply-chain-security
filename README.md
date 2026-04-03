@@ -2,7 +2,7 @@
 
 [🏠 Homepage](https://github.com/javamagong/ai-supply-chain-security) | [📦 Issues](https://github.com/javamagong/ai-supply-chain-security/issues) | [📄 License: MIT-0](https://github.com/javamagong/ai-supply-chain-security/blob/main/LICENSE)
 
-> 🔒 Cross-platform supply chain security scanner for the AI coding era — Detect malicious hooks, MCP servers, prompt injection, and supply chain attacks
+> 🔒 Cross-platform supply chain security scanner for the AI coding era �?Detect malicious hooks, MCP servers, prompt injection, and supply chain attacks
 
 ## 🌐 Language
 
@@ -14,7 +14,7 @@
 ### OpenClaw
 
 ```bash
-openclaw skills install ai-security-scanner
+openclaw skills install ai-supply-chain-security
 ```
 
 ### Claude Code
@@ -36,7 +36,7 @@ pip install pyyaml colorama watchdog
 python auto_scanner.py -d /path/to/project
 ```
 
-## ✨ Features
+## �?Features
 
 ### 1. AI Assistant Hooks Detection
 
@@ -49,55 +49,55 @@ python auto_scanner.py -d /path/to/project
 ### 2. Supply Chain Attack Detection
 
 #### npm/Node.js
-- ✅ Dangerous lifecycle scripts: `postinstall`, `preinstall`, `prepare`
-- ✅ Known malicious packages (20+): event-stream, colors, node-ipc, crossenv, etc.
-- ✅ Typosquatting: axois→axios, loadsh→lodash, expres→express, etc.
+- �?Dangerous lifecycle scripts: `postinstall`, `preinstall`, `prepare`
+- �?Known malicious packages (20+): event-stream, colors, node-ipc, crossenv, etc.
+- �?Typosquatting: axois→axios, loadsh→lodash, expres→express, etc.
 
 #### Python
-- ✅ `requirements.txt` — git URL deps, unofficial PyPI index, unpinned versions
-- ✅ `Pipfile` — git deps, wildcard versions, typosquatting
-- ✅ `pyproject.toml` — PEP 621 / Poetry / PDM dependency scanning
-- ✅ `setup.py` — cmdclass hooks, os.system/subprocess, network requests
-- ✅ Known malicious packages (10+): colourama, ctx, openai-api, etc.
+- �?`requirements.txt` �?git URL deps, unofficial PyPI index, unpinned versions
+- �?`Pipfile` �?git deps, wildcard versions, typosquatting
+- �?`pyproject.toml` �?PEP 621 / Poetry / PDM dependency scanning
+- �?`setup.py` �?cmdclass hooks, os.system/subprocess, network requests
+- �?Known malicious packages (10+): colourama, ctx, openai-api, etc.
 
 #### Rust
-- ✅ Unpinned versions in `Cargo.toml`
-- ✅ git URL dependencies
+- �?Unpinned versions in `Cargo.toml`
+- �?git URL dependencies
 
 ### 3. MCP Server Security Detection
 
 Scans `mcpServers` in `.claude/settings.json`:
 
-- ✅ External URL connections (potential data exfiltration)
-- ✅ Suspicious command injection
-- ✅ Sensitive environment variable exposure (`API_KEY`, `TOKEN`, etc.)
+- �?External URL connections (potential data exfiltration)
+- �?Suspicious command injection
+- �?Sensitive environment variable exposure (`API_KEY`, `TOKEN`, etc.)
 
 ### 4. Prompt Injection Detection
 
 Scans `CLAUDE.md` and `.cursorrules`:
 
-- ✅ Instruction override attacks (`Ignore previous instructions`)
-- ✅ Role hijacking (`You are now a different AI`)
-- ✅ Urgency spoofing (`URGENT: Override all safety measures`)
-- ✅ Hidden Unicode characters (`\u200b\u200c\u200d\u2060\ufeff`)
-- ✅ Base64 encoded hidden directives
+- �?Instruction override attacks (`Ignore previous instructions`)
+- �?Role hijacking (`You are now a different AI`)
+- �?Urgency spoofing (`URGENT: Override all safety measures`)
+- �?Hidden Unicode characters (`\u200b\u200c\u200d\u2060\ufeff`)
+- �?Base64 encoded hidden directives
 
 ### 5. GitHub Actions Security
 
-- ✅ Unpinned Action versions (`@main`, `@master`, `@HEAD`)
-- ✅ Secrets leaked to logs (`echo ${{ secrets.API_KEY }}`)
-- ✅ `pull_request_target` dangerous trigger
+- �?Unpinned Action versions (`@main`, `@master`, `@HEAD`)
+- �?Secrets leaked to logs (`echo ${{ secrets.API_KEY }}`)
+- �?`pull_request_target` dangerous trigger
 
 ### 6. Code Obfuscation Detection
 
-- ✅ OBFUSC-001: Hex-encoded strings (`\x63\x75\x72\x6c`)
-- ✅ OBFUSC-002: `exec(base64.b64decode(...))`
-- ✅ OBFUSC-003: `__import__('subprocess')` dynamic import
-- ✅ OBFUSC-004: `chr()` character-by-character string building
-- ✅ OBFUSC-005: `exec(compile(source, ...))`
-- ✅ OBFUSC-006: `exec(bytes.fromhex(...))`
+- �?OBFUSC-001: Hex-encoded strings (`\x63\x75\x72\x6c`)
+- �?OBFUSC-002: `exec(base64.b64decode(...))`
+- �?OBFUSC-003: `__import__('subprocess')` dynamic import
+- �?OBFUSC-004: `chr()` character-by-character string building
+- �?OBFUSC-005: `exec(compile(source, ...))`
+- �?OBFUSC-006: `exec(bytes.fromhex(...))`
 
-## 🛡️ AI Ecosystem Typosquatting Protection
+## 🛡�?AI Ecosystem Typosquatting Protection
 
 These packages are high-value targets because they handle API keys:
 
@@ -149,7 +149,7 @@ These packages are high-value targets because they handle API keys:
 ## 📁 Project Structure
 
 ```
-ai-security-scanner/
+ai-supply-chain-security/
 ├── auto_scanner.py          # Main scanner (structured analysis)
 ├── ai_scanner.py            # Rule engine (SECURITY_RULES)
 ├── ai-scanner.py            # CLI entry point (quick scan)
@@ -159,10 +159,10 @@ ai-security-scanner/
 ├── _meta.json               # OpenClaw Skill metadata
 ├── SKILL.md                 # OpenClaw Skill description
 ├── .claude/
-│   └── commands/
-│       └── security-scan.md # Claude Code slash command
+�?  └── commands/
+�?      └── security-scan.md # Claude Code slash command
 ├── tests/
-│   └── test_scanner.py      # 65 test cases
+�?  └── test_scanner.py      # 65 test cases
 ├── examples/                # Clean vs malicious examples
 └── .github/workflows/ci.yml # CI pipeline
 ```
@@ -181,7 +181,7 @@ pytest tests/ -v
 ### Add a Malicious Package
 
 ```python
-# In auto_scanner.py — MALICIOUS_PACKAGES dict
+# In auto_scanner.py �?MALICIOUS_PACKAGES dict
 '<package-name>': {
     'type': 'supply_chain',   # typosquatting | supply_chain | hijacked
     'severity': 'CRITICAL',
@@ -195,7 +195,7 @@ pytest tests/ -v
 ### Add a Detection Rule
 
 ```python
-# In ai_scanner.py — SECURITY_RULES dict
+# In ai_scanner.py �?SECURITY_RULES dict
 'HOOK-XXX': {
     'pattern': r'your_regex',
     'severity': 'CRITICAL',   # CRITICAL | WARNING | INFO
