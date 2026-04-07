@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-04-03
+
+### Added
+- **Lock file poisoning detection**: `package-lock.json` (npm v1/v2/v3), `yarn.lock`, `poetry.lock`, `Cargo.lock`
+  - Detects non-official resolved URLs (CRITICAL)
+  - Detects missing integrity/checksum hashes (WARNING)
+  - Cross-references lock file entries against known malicious package database
+  - Detects git-sourced dependencies in lock files
+- **Registry substitution attack detection**: `.npmrc`, `pip.conf`/`pip.ini`
+  - `.npmrc`: global registry overrides, scoped registry redirects, hardcoded auth tokens, `always-auth=true`
+  - `pip.conf`/`pip.ini`: non-official `index-url`, `extra-index-url` dependency confusion risk, `trusted-host` TLS bypass
+  - Scans project-level and global config files (`~/.npmrc`, platform-specific pip config)
+- Lock files and registry configs added to file change monitoring
+
+### Changed
+- All Chinese text in source code and config translated to English
+
 ## [2.0.1] - 2026-04-03
 
 ### Fixed

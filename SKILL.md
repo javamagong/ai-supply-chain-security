@@ -6,8 +6,8 @@ Cross-platform AI Coding security scanner for **OpenClaw** and **Claude Code**, 
 
 ```yaml
 name: ai-supply-chain-security
-version: 2.0.0
-description: Cross-platform AI Coding security scanner - Detect hooks, MCP servers, prompt injection, and supply chain attacks
+version: 2.1.0
+description: Cross-platform AI Coding security scanner - Detect hooks, MCP servers, prompt injection, supply chain attacks, lock file poisoning, and registry substitution attacks
 author: JavaMaGong
 platforms: [Windows, macOS, Linux]
 category: security
@@ -74,13 +74,44 @@ Detects suspicious patterns in `CLAUDE.md` and `.cursorrules`:
 - Build.rs malicious code
 - Suspicious cargo.toml
 
-### 5. GitHub Actions Security
+### 5. Lock File Poisoning Detection
+
+**package-lock.json / yarn.lock:**
+- Non-official `resolved` URLs (CRITICAL)
+- Missing `integrity` hashes (WARNING)
+- Cross-reference against known malicious package database
+
+**poetry.lock:**
+- Git-sourced dependencies
+- Non-PyPI source URLs
+- Known malicious package detection
+
+**Cargo.lock:**
+- Git+ source dependencies
+- Non-crates.io registry sources
+- Missing checksum detection
+
+### 6. Registry Substitution Attack Detection
+
+**.npmrc:**
+- Global registry overrides pointing to non-official URLs (CRITICAL)
+- Scoped registry redirects (@scope:registry)
+- Hardcoded `_authToken` values (CRITICAL)
+- `always-auth=true` credential exposure
+
+**pip.conf / pip.ini:**
+- Non-official `index-url` (CRITICAL)
+- `extra-index-url` dependency confusion risk (WARNING)
+- `trusted-host` TLS bypass (WARNING)
+- Scans both project-level and global system config
+
+### 7. GitHub Actions Security
 
 - Unpinned Action versions (@main, @master, @HEAD)
 - Secrets leakage to logs
 - Dangerous pull_request_target triggers
 
-### 6. Code Obfuscation Detection
+### 8. Code Obfuscation Detection
 
 - Hex-encoded malicious code
 - Base64 hidden payloads

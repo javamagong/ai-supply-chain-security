@@ -1,13 +1,13 @@
 # AI Security Scanner v2.0 Configuration
-# 跨平台配置文件，支持 Windows/macOS/Linux
+# Cross-platform configuration file, supports Windows/macOS/Linux
 
-# 扫描路径（支持多个）
+# Scan paths (supports multiple)
 scan_paths:
   - ./projects
   - ~/work
   - ~/dev
 
-# 排除模式（glob 风格）
+# Exclude patterns (glob style)
 exclude_patterns:
   - "**/node_modules/**"
   - "**/dist/**"
@@ -20,71 +20,71 @@ exclude_patterns:
   - "**/*.min.js"
   - "**/*.bundle.js"
 
-# 启用的检测规则
+# Enabled detection rules
 rules:
   enabled:
-    # ── 高危：远程代码执行 ──
+    # ── Critical: Remote code execution ──
     - HOOK-001  # curl | bash
     - HOOK-002  # wget | bash
     - HOOK-003  # bash -c curl
-    # ── 高危：破坏性命令 ──
+    # ── Critical: Destructive commands ──
     - HOOK-004  # rm -rf
     - HOOK-005  # del /s /q
     - HOOK-006  # format X:
-    # ── 高危：权限提升 ──
+    # ── Critical: Privilege escalation ──
     - HOOK-007  # chmod 777
     - HOOK-008  # sudo rm/chmod
-    # ── 中危：代码执行 ──
+    # ── Warning: Code execution ──
     - HOOK-010  # eval()
     - HOOK-011  # python -c
     - HOOK-012  # node -e
     - HOOK-013  # powershell
     - HOOK-014  # base64 --decode
-    # ── 中危：网络后门 ──
+    # ── Warning: Network backdoor ──
     - HOOK-020  # nc -e
     - HOOK-021  # bash /dev/tcp
     - HOOK-022  # curl -o *.sh
-    # ── 供应链：npm ──
-    - SUPPLY-001  # postinstall 危险命令
-    - SUPPLY-002  # preinstall 危险命令
-    - SUPPLY-003  # prepare 可疑命令
-    # ── 供应链：Python ──
-    - SUPPLY-010  # git URL 依赖
-    - SUPPLY-011  # 非官方 PyPI 索引（依赖混淆）
+    # ── Supply chain: npm ──
+    - SUPPLY-001  # postinstall dangerous command
+    - SUPPLY-002  # preinstall dangerous command
+    - SUPPLY-003  # prepare suspicious command
+    # ── Supply chain: Python ──
+    - SUPPLY-010  # git URL dependency
+    - SUPPLY-011  # unofficial PyPI index (dependency confusion)
     - SUPPLY-012  # setup.py cmdclass
     - SUPPLY-013  # setup.py os.system/subprocess
-    # ── 供应链：GitHub Actions ──
-    - SUPPLY-020  # Action 引用未固定分支（CRITICAL）
-    - SUPPLY-021  # Action 引用短 SHA（INFO）
-    # ── Claude Code / AI 助手 ──
-    - CLAUDE-001  # MCP 服务器外部 URL
-    - CLAUDE-002  # Prompt 注入攻击
-    - CLAUDE-003  # hooks 调用外部 URL
-    - CLAUDE-004  # hooks 引用敏感环境变量
-    - CLAUDE-005  # 隐藏 Unicode 字符
-    # ── 代码混淆 ──
-    - OBFUSC-001  # 十六进制编码字符串
+    # ── Supply chain: GitHub Actions ──
+    - SUPPLY-020  # Action references unpinned branch (CRITICAL)
+    - SUPPLY-021  # Action references short SHA (INFO)
+    # ── Claude Code / AI Assistant ──
+    - CLAUDE-001  # MCP server external URL
+    - CLAUDE-002  # Prompt injection attack
+    - CLAUDE-003  # hooks calling external URL
+    - CLAUDE-004  # hooks referencing sensitive environment variables
+    - CLAUDE-005  # hidden Unicode characters
+    # ── Code obfuscation ──
+    - OBFUSC-001  # hex-encoded strings
     - OBFUSC-002  # exec/eval + base64 decode
-    - OBFUSC-003  # __import__ 动态导入敏感模块
-    - OBFUSC-004  # chr() 逐字符构建字符串
+    - OBFUSC-003  # __import__ dynamic import of sensitive modules
+    - OBFUSC-004  # chr() building string character by character
     - OBFUSC-005  # exec(compile(...))
     - OBFUSC-006  # exec(bytes.fromhex(...))
 
-  # 信息级别规则（默认禁用，按需开启）
+  # Info-level rules (disabled by default, enable as needed)
   disabled:
     - HOOK-030  # npm install -g
     - HOOK-031  # pip install
     - HOOK-032  # cargo install
 
-# 扫描的文件类型
+# File types to scan
 scan:
   file_types:
-    # AI 助手配置
+    # AI assistant configuration
     - settings.json
     - config.json
     - CLAUDE.md
     - .cursorrules
-    # 包管理器
+    # Package managers
     - package.json
     - requirements.txt
     - requirements-dev.txt
@@ -97,54 +97,54 @@ scan:
     - "*.yml"
     - "*.yaml"
 
-  # 最大文件大小（MB）
+  # Maximum file size (MB)
   max_file_size: 10
 
-  # 目录递归深度（-1 为无限制）
+  # Directory recursion depth (-1 for unlimited)
   max_depth: -1
 
-  # 是否跟随符号链接
+  # Whether to follow symlinks
   follow_symlinks: false
 
-# 报告设置
+# Report settings
 report:
   format: json          # text | json | markdown
   output_dir: ./reports
   retention_days: 30
   include_safe_files: false
 
-# 通知设置
+# Notification settings
 notifications:
-  # 邮件通知
+  # Email notifications
   email:
     enabled: false
     smtp_server: smtp.example.com
     smtp_port: 587
     use_tls: true
     username: security@example.com
-    password_env: SMTP_PASSWORD  # 从环境变量读取，不要硬编码
+    password_env: SMTP_PASSWORD  # Read from environment variable, do not hardcode
     from_addr: ai-scanner@example.com
     to_addrs:
       - security-team@example.com
 
-  # Webhook 通知（Slack / Discord / 钉钉）
+  # Webhook notifications (Slack / Discord / DingTalk)
   webhook:
     enabled: false
-    url_env: SECURITY_WEBHOOK_URL  # 从环境变量读取
+    url_env: SECURITY_WEBHOOK_URL  # Read from environment variable
     type: slack           # slack | discord | dingtalk | custom
 
-  # 系统原生通知
+  # Native system notifications
   system:
     enabled: true   # macOS: osascript  Windows: toast  Linux: notify-send
 
-# CI/CD 模式
+# CI/CD mode
 ci:
-  fail_on_critical: true   # 发现 CRITICAL 时返回退出码 2
-  fail_on_warning: false   # 发现 WARNING 时返回退出码 1
+  fail_on_critical: true   # Return exit code 2 when CRITICAL issues found
+  fail_on_warning: false   # Return exit code 1 when WARNING issues found
   output_format: json
   upload_artifact: true
 
-# 性能
+# Performance
 performance:
   parallel_files: 4
   use_cache: true
