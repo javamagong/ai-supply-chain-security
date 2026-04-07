@@ -387,9 +387,10 @@ class DependencyChecker:
             all_deps.update(data.get('devDependencies', {}))
 
             for dep_name, version in all_deps.items():
-                # Top-level package.json: detect typosquatting
+                # Top-level package.json: detect typosquatting + homoglyph
                 if not is_in_node_modules:
                     self._check_typosquatting(dep_name, 'npm', package_json_path, issues)
+                    issues.extend(self.check_package_name_homoglyphs(dep_name, 'npm', package_json_path))
 
                 # All levels: detect known malicious packages
                 if dep_name in self.MALICIOUS_PACKAGES:
@@ -434,7 +435,7 @@ class DependencyChecker:
         issues = []
 
         try:
-            with open(requirements_path, 'r', encoding='utf-8') as f:
+            with open(requirements_path, 'r', encoding='utf-8', errors='ignore') as f:
                 lines = f.readlines()
 
             for line in lines:
@@ -442,11 +443,12 @@ class DependencyChecker:
                 if not line or line.startswith('#'):
                     continue
 
-                # Parse package name
-                match = re.match(r'^([a-zA-Z0-9_-]+)', line)
+                # Parse package name (supports ASCII and Unicode — homoglyph check needs raw name)
+                match = re.match(r'^([^\s>=<!;\[]+)', line)
                 if match:
                     pkg_name = match.group(1)
                     self._check_typosquatting(pkg_name, 'python', requirements_path, issues)
+                    issues.extend(self.check_package_name_homoglyphs(pkg_name, 'python', requirements_path))
 
         except FileNotFoundError:
             pass
@@ -1831,6 +1833,523 @@ class DependencyChecker:
 
         return issues
 
+    # ──────────────────────────────────────────────────────────────
+    # P1-1  VS Code / IntelliJ IDE Configuration Attack Detection
+    # ──────────────────────────────────────────────────────────────
+
+    # Dangerous commands that should never appear in IDE task definitions
+    _IDE_DANGEROUS_CMDS = re.compile(
+        r'(?:curl|wget|bash|sh|powershell|pwsh|python3?|node|nc|ncat|eval|exec)',
+        re.IGNORECASE
+    )
+
+    def check_vscode_tasks(self, tasks_json_path: Path) -> List[Dict]:
+        """Detect auto-run and RCE patterns in .vscode/tasks.json"""
+        issues = []
+        try:
+            with open(tasks_json_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            data = json.loads(content)
+        except (json.JSONDecodeError, OSError):
+            return issues
+
+        tasks = data.get('tasks', [])
+        if not isinstance(tasks, list):
+            return issues
+
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+            label = task.get('label', '<unnamed>')
+            run_options = task.get('runOptions', {})
+
+            # Auto-run on folder open
+            if isinstance(run_options, dict) and run_options.get('runOn') == 'folderOpen':
+                issues.append({
+                    'type': 'vscode_auto_run',
+                    'severity': 'CRITICAL',
+                    'category': 'ide_attack',
+                    'rule_id': 'IDE-001',
+                    'file': str(tasks_json_path),
+                    'task': label,
+                    'message': f'VS Code task "{label}" is configured to auto-run on folder open',
+                    'remediation': (
+                        'Remove runOptions.runOn="folderOpen". Tasks should only run '
+                        'on explicit user action (Ctrl+Shift+B or task picker).'
+                    )
+                })
+
+            # Dangerous command in task
+            command = str(task.get('command', ''))
+            args = task.get('args', [])
+            full_cmd = command + ' ' + ' '.join(str(a) for a in args)
+            if self._IDE_DANGEROUS_CMDS.search(command):
+                issues.append({
+                    'type': 'vscode_dangerous_command',
+                    'severity': 'CRITICAL',
+                    'category': 'ide_attack',
+                    'rule_id': 'IDE-002',
+                    'file': str(tasks_json_path),
+                    'task': label,
+                    'content': full_cmd[:200],
+                    'message': f'VS Code task "{label}" executes a network/shell tool: {command[:80]}',
+                    'remediation': (
+                        'Review this task command. If it downloads or executes remote code, '
+                        'consider removing it or replacing with a safer, pinned equivalent.'
+                    )
+                })
+
+        return issues
+
+    def check_vscode_settings(self, settings_json_path: Path) -> List[Dict]:
+        """Detect PATH hijacking and auto-activation risks in .vscode/settings.json"""
+        issues = []
+        try:
+            with open(settings_json_path, 'r', encoding='utf-8', errors='ignore') as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return issues
+
+        # terminal.integrated.env.* overrides — can hijack PATH
+        for key in ('terminal.integrated.env.linux',
+                    'terminal.integrated.env.osx',
+                    'terminal.integrated.env.windows'):
+            if key in data:
+                env_overrides = data[key]
+                if isinstance(env_overrides, dict):
+                    # Specifically flag PATH manipulation
+                    if 'PATH' in env_overrides:
+                        issues.append({
+                            'type': 'vscode_path_hijack',
+                            'severity': 'CRITICAL',
+                            'category': 'ide_attack',
+                            'rule_id': 'IDE-003',
+                            'file': str(settings_json_path),
+                            'setting': key,
+                            'content': str(env_overrides.get('PATH', ''))[:200],
+                            'message': f'VS Code settings override PATH via {key} — attacker can redirect executables to malicious binaries',
+                            'remediation': 'Remove PATH overrides from .vscode/settings.json; use .envrc or project-level tooling instead'
+                        })
+                    else:
+                        issues.append({
+                            'type': 'vscode_env_override',
+                            'severity': 'WARNING',
+                            'category': 'ide_attack',
+                            'rule_id': 'IDE-003',
+                            'file': str(settings_json_path),
+                            'setting': key,
+                            'message': f'VS Code settings inject terminal environment variables via {key}',
+                            'remediation': 'Audit these env overrides; ensure they do not point to untrusted locations'
+                        })
+
+        # Python auto-activate can run malicious activate scripts
+        if data.get('python.terminal.activateEnvInCurrentTerminal') is True:
+            issues.append({
+                'type': 'vscode_python_auto_activate',
+                'severity': 'WARNING',
+                'category': 'ide_attack',
+                'rule_id': 'IDE-004',
+                'file': str(settings_json_path),
+                'message': 'VS Code auto-activates Python venv in terminal — malicious activate script would run silently',
+                'remediation': 'Set python.terminal.activateEnvInCurrentTerminal to false and activate venv explicitly'
+            })
+
+        return issues
+
+    def check_intellij_workspace(self, workspace_xml_path: Path) -> List[Dict]:
+        """Detect dangerous run configurations in IntelliJ .idea/workspace.xml"""
+        issues = []
+        try:
+            with open(workspace_xml_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+        except OSError:
+            return issues
+
+        # Detect external tool configurations that run on project open
+        if re.search(r'<component name="RunManager"', content):
+            # External tool with network/shell tool reference
+            if self._IDE_DANGEROUS_CMDS.search(content):
+                dangerous_matches = self._IDE_DANGEROUS_CMDS.findall(content)
+                unique_cmds = list(dict.fromkeys(c.lower() for c in dangerous_matches))
+                issues.append({
+                    'type': 'idea_dangerous_run_config',
+                    'severity': 'WARNING',
+                    'category': 'ide_attack',
+                    'rule_id': 'IDE-002',
+                    'file': str(workspace_xml_path),
+                    'content': ', '.join(unique_cmds[:5]),
+                    'message': f'IntelliJ workspace.xml run configuration references dangerous commands: {", ".join(unique_cmds[:5])}',
+                    'remediation': 'Review .idea/workspace.xml run configurations; remove any that execute untrusted network/shell tools'
+                })
+
+        return issues
+
+    def scan_ide_configs(self, root_path: Path) -> List[Dict]:
+        """Scan all IDE configuration files under a project root."""
+        issues = []
+
+        # VS Code
+        vscode_dir = root_path / '.vscode'
+        if vscode_dir.is_dir():
+            tasks_json = vscode_dir / 'tasks.json'
+            if tasks_json.exists():
+                issues.extend(self.check_vscode_tasks(tasks_json))
+            settings_json = vscode_dir / 'settings.json'
+            if settings_json.exists():
+                issues.extend(self.check_vscode_settings(settings_json))
+
+        # IntelliJ IDEA
+        idea_dir = root_path / '.idea'
+        if idea_dir.is_dir():
+            workspace_xml = idea_dir / 'workspace.xml'
+            if workspace_xml.exists():
+                issues.extend(self.check_intellij_workspace(workspace_xml))
+
+        return issues
+
+    # ──────────────────────────────────────────────────────────────
+    # P1-2  Makefile / Taskfile Build Script Attack Detection
+    # ──────────────────────────────────────────────────────────────
+
+    # Patterns that indicate dangerous operations in build scripts
+    _MAKEFILE_PATTERNS = [
+        # curl/wget piped directly to shell — classic supply chain RCE
+        (re.compile(r'(?:curl|wget)\s+\S[^\n]*\|\s*(?:sudo\s+)?(?:ba)?sh\b', re.IGNORECASE),
+         'CRITICAL', 'BUILD-001',
+         'Build script downloads and executes remote code (curl|wget piped to shell)'),
+        # $(shell ...) or $(eval ...) with network tools
+        (re.compile(r'\$\((?:shell|eval)\s[^\)]*(?:curl|wget|python3?|node|bash)', re.IGNORECASE),
+         'CRITICAL', 'BUILD-002',
+         'Makefile $(shell) or $(eval) executes a network/interpreter command'),
+        # Direct eval of downloaded content
+        (re.compile(r'eval\s+["`]\s*(?:curl|wget)\s', re.IGNORECASE),
+         'CRITICAL', 'BUILD-001',
+         'Build script eval-executes downloaded remote content'),
+        # pip/npm install without pinning in recipe lines
+        (re.compile(r'^\t.*(?:pip|pip3)\s+install\s+(?!-r\s)(?!--requirement)(?![^\n]*==)', re.MULTILINE),
+         'WARNING', 'BUILD-003',
+         'Makefile recipe installs unpinned Python packages (missing == version pin)'),
+        (re.compile(r'^\t.*npm\s+install\s+-g\b', re.MULTILINE),
+         'WARNING', 'BUILD-003',
+         'Makefile recipe performs global npm install — installs untrusted code into system PATH'),
+        # curl writing an executable and then running it
+        (re.compile(r'curl\s[^\n]*-[oO]\s*\S+\.(?:sh|py|js|exe|bin)\b', re.IGNORECASE),
+         'WARNING', 'BUILD-001',
+         'Build script downloads a script/executable file via curl'),
+    ]
+
+    _TASKFILE_PATTERNS = [
+        # Taskfile (Task runner) — same network patterns
+        (re.compile(r'(?:curl|wget)\s+\S+\s*\|\s*(?:sudo\s+)?(?:ba)?sh', re.IGNORECASE),
+         'CRITICAL', 'BUILD-001',
+         'Taskfile task downloads and executes remote code'),
+        (re.compile(r'eval\s+["`]\s*(?:curl|wget)\s', re.IGNORECASE),
+         'CRITICAL', 'BUILD-001',
+         'Taskfile eval-executes downloaded remote content'),
+        (re.compile(r'(?:pip|pip3)\s+install\s+(?![^\n]*==)', re.IGNORECASE),
+         'WARNING', 'BUILD-003',
+         'Taskfile installs unpinned Python packages'),
+    ]
+
+    def check_makefile(self, makefile_path: Path) -> List[Dict]:
+        """Detect supply chain attack patterns in Makefile / GNUmakefile."""
+        issues = []
+        try:
+            with open(makefile_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                lines = content.split('\n')
+        except OSError:
+            return issues
+
+        reported: set = set()
+        for line_num, line in enumerate(lines, 1):
+            stripped = line.strip()
+            # Skip comments
+            if stripped.startswith('#'):
+                continue
+            for pattern, severity, rule_id, message in self._MAKEFILE_PATTERNS:
+                if pattern.search(line) and line_num not in reported:
+                    issues.append({
+                        'type': 'build_script_risk',
+                        'severity': severity,
+                        'category': 'build_script',
+                        'rule_id': rule_id,
+                        'file': str(makefile_path),
+                        'line': line_num,
+                        'content': stripped[:200],
+                        'message': f'Makefile: {message}',
+                        'remediation': (
+                            'Audit this Makefile target. Download artifacts separately, '
+                            'verify their checksums, and never pipe downloads directly to a shell.'
+                        )
+                    })
+                    reported.add(line_num)
+                    break
+
+        return issues
+
+    def check_taskfile(self, taskfile_path: Path) -> List[Dict]:
+        """Detect supply chain attack patterns in Taskfile.yml / Taskfile.yaml."""
+        issues = []
+        try:
+            with open(taskfile_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
+        except OSError:
+            return issues
+
+        reported: set = set()
+        for line_num, raw_line in enumerate(lines, 1):
+            stripped = raw_line.strip()
+            if stripped.startswith('#'):
+                continue
+            for pattern, severity, rule_id, message in self._TASKFILE_PATTERNS:
+                if pattern.search(raw_line) and line_num not in reported:
+                    issues.append({
+                        'type': 'build_script_risk',
+                        'severity': severity,
+                        'category': 'build_script',
+                        'rule_id': rule_id,
+                        'file': str(taskfile_path),
+                        'line': line_num,
+                        'content': stripped[:200],
+                        'message': f'Taskfile: {message}',
+                        'remediation': (
+                            'Audit this Taskfile task. Avoid piping downloads to shell; '
+                            'always pin dependency versions and verify checksums.'
+                        )
+                    })
+                    reported.add(line_num)
+                    break
+
+        return issues
+
+    # ──────────────────────────────────────────────────────────────
+    # P1-3  Unicode Homoglyph Package Name Detection
+    # ──────────────────────────────────────────────────────────────
+
+    # High-value packages whose names are worth visually spoofing.
+    # We normalize each candidate name to NFKC form and compare against
+    # the ASCII-only canonical form.  If they differ, it's a homoglyph attack.
+    _HOMOGLYPH_TARGETS = {
+        # npm
+        'react', 'lodash', 'express', 'axios', 'webpack', 'vue', 'angular',
+        'typescript', 'eslint', 'prettier', 'jest', 'babel', 'rollup',
+        # Python
+        'requests', 'numpy', 'pandas', 'flask', 'django', 'fastapi',
+        'sqlalchemy', 'celery', 'boto3', 'pydantic', 'uvicorn',
+        # AI / ML
+        'openai', 'anthropic', 'langchain', 'transformers', 'torch',
+        'tensorflow', 'litellm', 'huggingface', 'chromadb',
+        # Infra
+        'cryptography', 'paramiko', 'fabric', 'ansible', 'terraform',
+    }
+
+    # Confusables map: Unicode characters that visually resemble ASCII letters.
+    # Covers the most common Cyrillic, Greek, and Latin lookalikes used in attacks.
+    # Source: Unicode Security Mechanisms (tr39) + practical attack corpus.
+    _CONFUSABLES: dict = {
+        # Cyrillic → Latin
+        '\u0430': 'a',  # а → a
+        '\u0435': 'e',  # е → e
+        '\u0456': 'i',  # і → i
+        '\u04CF': 'l',  # ӏ → l
+        '\u043E': 'o',  # о → o
+        '\u0440': 'p',  # р → p  (Cyrillic р looks like Latin p)
+        '\u0441': 'c',  # с → c
+        '\u0445': 'x',  # х → x
+        '\u0443': 'y',  # у → y
+        '\u0432': 'b',  # в → b (approximate)
+        '\u0455': 's',  # ѕ → s
+        '\u0501': 'd',  # ԁ → d
+        # Greek → Latin
+        '\u03B1': 'a',  # α → a
+        '\u03B5': 'e',  # ε → e
+        '\u03B9': 'i',  # ι → i
+        '\u03BF': 'o',  # ο → o
+        '\u03C1': 'p',  # ρ → p
+        '\u03C7': 'x',  # χ → x
+        '\u03BD': 'v',  # ν → v
+        # Latin lookalikes (fullwidth, etc.)
+        '\uFF41': 'a',  '\uFF45': 'e',  '\uFF49': 'i',  '\uFF4F': 'o',
+        '\uFF55': 'u',  '\uFF50': 'p',  '\uFF43': 'c',  '\uFF58': 'x',
+        # Mathematical alphanumerics (often used in social engineering)
+        '\U0001D41A': 'a', '\U0001D41E': 'e', '\U0001D422': 'i',
+        '\U0001D428': 'o', '\U0001D42E': 'u',
+    }
+
+    def _transliterate_to_ascii(self, text: str) -> str:
+        """Replace confusable Unicode chars with their ASCII equivalents."""
+        return ''.join(self._CONFUSABLES.get(ch, ch) for ch in text)
+
+    def _is_homoglyph_attack(self, pkg_name: str) -> Optional[str]:
+        """
+        Return the canonical package name being spoofed, or None if clean.
+        Strategy: transliterate known confusable chars to ASCII equivalents,
+        then check if the result matches a high-value target while the original
+        contains non-ASCII characters (proving the substitution happened).
+        """
+        # If it's pure ASCII it cannot be a homoglyph attack
+        try:
+            pkg_name.encode('ascii')
+            return None
+        except UnicodeEncodeError:
+            pass
+
+        lower = pkg_name.lower()
+        transliterated = self._transliterate_to_ascii(lower)
+
+        # After transliteration must be pure ASCII for a valid match
+        try:
+            transliterated.encode('ascii')
+        except UnicodeEncodeError:
+            return None   # contains unusual non-confusable chars, skip
+
+        # Check exact match against known targets
+        if transliterated in self._HOMOGLYPH_TARGETS:
+            return transliterated
+
+        # Handle scoped packages: '@scope/name'
+        bare = transliterated.lstrip('@').split('/')[-1]
+        if bare in self._HOMOGLYPH_TARGETS:
+            return bare
+
+        return None
+
+    def check_package_name_homoglyphs(self, pkg_name: str, pkg_type: str,
+                                      file_path: Path) -> List[Dict]:
+        """Check a single package name for Unicode homoglyph spoofing."""
+        target = self._is_homoglyph_attack(pkg_name)
+        if target is None:
+            return []
+        return [{
+            'type': 'homoglyph_attack',
+            'severity': 'CRITICAL',
+            'category': 'supply_chain',
+            'rule_id': 'SUPPLY-030',
+            'package': pkg_name,
+            'spoofs': target,
+            'ecosystem': pkg_type,
+            'file': str(file_path),
+            'message': (
+                f'Package name "{pkg_name}" contains non-ASCII Unicode characters '
+                f'that visually resemble "{target}" — likely homoglyph (lookalike) attack'
+            ),
+            'remediation': (
+                f'Replace with the canonical ASCII package name "{target}". '
+                f'Attackers register visually identical names using Cyrillic/Greek characters.'
+            )
+        }]
+
+    # ──────────────────────────────────────────────────────────────
+    # P1-4  GitHub Actions Enhanced Checks
+    # ──────────────────────────────────────────────────────────────
+
+    def check_github_actions_enhanced(self, workflow_path: Path) -> List[Dict]:
+        """
+        Additional GitHub Actions checks beyond check_github_actions():
+        - ::set-env / ::add-path deprecated workflow commands
+        - Untrusted github.event.* input used directly in run steps
+        - pull_request_target + checkout of fork HEAD (pwn request pattern)
+        """
+        issues = []
+        try:
+            with open(workflow_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                lines = content.split('\n')
+        except OSError:
+            return issues
+
+        # Track if file uses pull_request_target trigger
+        has_prt = bool(re.search(r'^\s*pull_request_target\s*:', content, re.MULTILINE))
+        # Track if any step does checkout of fork head ref
+        checkout_fork_pattern = re.compile(
+            r'ref\s*:\s*\$\{\{\s*github\.event\.pull_request\.head\.(ref|sha)\s*\}\}'
+        )
+        has_checkout_fork = bool(checkout_fork_pattern.search(content))
+
+        # Detect the dangerous combination: pull_request_target + checkout fork code
+        if has_prt and has_checkout_fork:
+            issues.append({
+                'type': 'pwn_request',
+                'severity': 'CRITICAL',
+                'category': 'supply_chain',
+                'rule_id': 'GHAS-001',
+                'file': str(workflow_path),
+                'line': 0,
+                'message': (
+                    'Pwn Request pattern detected: pull_request_target trigger combined with '
+                    'checkout of fork PR head — fork code runs with repository secrets access'
+                ),
+                'remediation': (
+                    'Never checkout fork code (github.event.pull_request.head.ref/sha) '
+                    'in a pull_request_target workflow. Use pull_request trigger instead, '
+                    'or ensure the checkout step uses the base ref only.'
+                )
+            })
+
+        for line_num, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if stripped.startswith('#'):
+                continue
+
+            # ::set-env deprecated command injection
+            if re.search(r'::\s*set-env\s+name=', line):
+                issues.append({
+                    'type': 'deprecated_set_env',
+                    'severity': 'CRITICAL',
+                    'category': 'supply_chain',
+                    'rule_id': 'GHAS-001',
+                    'file': str(workflow_path),
+                    'line': line_num,
+                    'content': stripped[:200],
+                    'message': '::set-env deprecated command allows environment variable injection via untrusted input',
+                    'remediation': 'Replace with: echo "VAR=value" >> $GITHUB_ENV'
+                })
+
+            # ::add-path deprecated command
+            if re.search(r'::\s*add-path\s*::', line):
+                issues.append({
+                    'type': 'deprecated_add_path',
+                    'severity': 'WARNING',
+                    'category': 'supply_chain',
+                    'rule_id': 'GHAS-003',
+                    'file': str(workflow_path),
+                    'line': line_num,
+                    'content': stripped[:200],
+                    'message': '::add-path deprecated command allows arbitrary PATH injection',
+                    'remediation': 'Replace with: echo "/my/path" >> $GITHUB_PATH'
+                })
+
+            # Untrusted github.event user input used directly in run steps
+            untrusted_input = re.search(
+                r'\$\{\{\s*github\.event\.'
+                r'(?:issue\.title|pull_request\.(?:title|body|head\.ref|head\.label))'
+                r'\s*\}\}',
+                line
+            )
+            if untrusted_input:
+                issues.append({
+                    'type': 'untrusted_input_injection',
+                    'severity': 'CRITICAL',
+                    'category': 'supply_chain',
+                    'rule_id': 'GHAS-002',
+                    'file': str(workflow_path),
+                    'line': line_num,
+                    'content': stripped[:200],
+                    'message': (
+                        'Untrusted user-controlled input used directly in workflow run step — '
+                        'attacker can inject arbitrary shell commands via PR/issue title or body'
+                    ),
+                    'remediation': (
+                        'Assign to an env var first:\n'
+                        '  env:\n'
+                        '    TITLE: ${{ github.event.pull_request.title }}\n'
+                        'Then reference $TITLE in the run step (shell variable, not expression).'
+                    )
+                })
+
+        return issues
+
 
 class FileChangeMonitor:
     """File change monitor"""
@@ -2172,13 +2691,14 @@ class AutoSecurityScanner:
                     'ai_config_issues'
                 )
 
-            # ===== GitHub Actions checks =====
+            # ===== GitHub Actions checks (P1-4 enhanced) =====
 
             workflows_dir = proj_path / '.github' / 'workflows'
             if workflows_dir.exists() and workflows_dir.is_dir():
                 for wf_file in workflows_dir.iterdir():
                     if wf_file.suffix in ('.yml', '.yaml') and wf_file.is_file():
                         _collect(self.dependency_checker.check_github_actions(wf_file))
+                        _collect(self.dependency_checker.check_github_actions_enhanced(wf_file))
 
             # ===== Lock file poisoning checks =====
 
@@ -2208,6 +2728,19 @@ class AutoSecurityScanner:
                 pip_conf = proj_path / pip_conf_name
                 if pip_conf.exists():
                     _collect(self.dependency_checker.check_pip_conf(pip_conf))
+
+            # ===== IDE configuration attack scanning (P1-1) =====
+            _collect(self.dependency_checker.scan_ide_configs(proj_path))
+
+            # ===== Makefile / Taskfile build script scanning (P1-2) =====
+            for makefile_name in ('Makefile', 'GNUmakefile', 'makefile'):
+                mf = proj_path / makefile_name
+                if mf.exists():
+                    _collect(self.dependency_checker.check_makefile(mf))
+            for taskfile_name in ('Taskfile.yml', 'Taskfile.yaml', 'taskfile.yml'):
+                tf = proj_path / taskfile_name
+                if tf.exists():
+                    _collect(self.dependency_checker.check_taskfile(tf))
 
             # ===== Hardcoded secret / credential scanning =====
             _collect(self.dependency_checker.scan_for_secrets(proj_path))

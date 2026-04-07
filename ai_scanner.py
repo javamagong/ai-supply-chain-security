@@ -417,6 +417,91 @@ SECURITY_RULES = {
         'recommendation': 'Remove and rotate if real, use environment variable instead'
     },
 
+    # ========== IDE Configuration Attacks ==========
+    'IDE-001': {
+        'pattern': r'"runOn"\s*:\s*"folderOpen"',
+        'severity': 'CRITICAL',
+        'category': 'ide_attack',
+        'description': 'VS Code task configured to auto-run on folder open — can execute arbitrary code when project is opened',
+        'recommendation': 'Remove runOn:folderOpen from .vscode/tasks.json; tasks should only run on explicit user action'
+    },
+    'IDE-002': {
+        'pattern': r'"command"\s*:\s*"[^"]*(?:curl|wget|bash|sh|powershell|python|node|nc|eval)[^"]*"',
+        'severity': 'CRITICAL',
+        'category': 'ide_attack',
+        'description': 'VS Code task executes a network/shell tool — potential RCE when task is triggered',
+        'recommendation': 'Review task command carefully; remove or sandbox any network/shell calls'
+    },
+    'IDE-003': {
+        'pattern': r'"terminal\.integrated\.env\.[a-z]+"',
+        'severity': 'WARNING',
+        'category': 'ide_attack',
+        'description': 'VS Code settings override terminal environment variables — can hijack PATH or inject env vars',
+        'recommendation': 'Audit terminal.integrated.env.* settings in .vscode/settings.json'
+    },
+    'IDE-004': {
+        'pattern': r'"python\.terminal\.activateEnvInCurrentTerminal"\s*:\s*true',
+        'severity': 'WARNING',
+        'category': 'ide_attack',
+        'description': 'VS Code auto-activates Python environment in terminal — attacker can inject malicious activation scripts',
+        'recommendation': 'Keep as false unless explicitly needed; audit activate scripts in .venv'
+    },
+
+    # ========== Build Script Attacks (Makefile / Taskfile) ==========
+    'BUILD-001': {
+        'pattern': r'(?:curl|wget)\s+.*\|(?:\s*(?:sudo\s+)?(?:ba)?sh)',
+        'severity': 'CRITICAL',
+        'category': 'build_script',
+        'description': 'Makefile/build script pipes download directly to shell — classic supply chain RCE vector',
+        'recommendation': 'Download to a file first, verify checksum, then execute explicitly'
+    },
+    'BUILD-002': {
+        'pattern': r'\$\((?:shell|eval)\s+.*(?:curl|wget|python|node|bash)',
+        'severity': 'CRITICAL',
+        'category': 'build_script',
+        'description': 'Makefile $(shell) or $(eval) executes a network/interpreter command — arbitrary code at build time',
+        'recommendation': 'Avoid $(shell)/ $(eval) with network tools; use explicit recipe steps'
+    },
+    'BUILD-003': {
+        'pattern': r'(?:^|\n)\s*install\s*:.*\n(?:.*\n)*?.*(?:curl|wget|pip install|npm install -g)',
+        'severity': 'WARNING',
+        'category': 'build_script',
+        'description': 'Makefile install target performs network package installation',
+        'recommendation': 'Pin all package versions; prefer vendored dependencies or lock files'
+    },
+
+    # ========== GitHub Actions Enhanced ==========
+    'GHAS-001': {
+        'pattern': r'::\s*set-env\s+name=',
+        'severity': 'CRITICAL',
+        'category': 'supply_chain',
+        'description': 'Deprecated ::set-env workflow command — allows injecting arbitrary environment variables via untrusted input',
+        'recommendation': 'Use $GITHUB_ENV file output instead: echo "VAR=value" >> $GITHUB_ENV'
+    },
+    'GHAS-002': {
+        'pattern': r'\$\{\{\s*github\.event\.(?:issue\.title|pull_request\.(?:title|body|head\.ref|head\.label))\s*\}\}',
+        'severity': 'CRITICAL',
+        'category': 'supply_chain',
+        'description': 'Untrusted github.event user input used directly in run step — allows command injection via PR/issue title',
+        'recommendation': 'Store in intermediate env var first: env: TITLE: ${{ github.event.pull_request.title }}'
+    },
+    'GHAS-003': {
+        'pattern': r'::\s*add-path\s*::',
+        'severity': 'WARNING',
+        'category': 'supply_chain',
+        'description': 'Deprecated ::add-path workflow command — allows injecting arbitrary directories into PATH',
+        'recommendation': 'Use $GITHUB_PATH file output instead: echo "/my/path" >> $GITHUB_PATH'
+    },
+
+    # ========== Unicode Homoglyph Package Name Attack ==========
+    'SUPPLY-030': {
+        'pattern': r'[^\x00-\x7F]',   # Any non-ASCII character — contextual check done in auto_scanner
+        'severity': 'CRITICAL',
+        'category': 'supply_chain',
+        'description': 'Package name contains non-ASCII Unicode characters that visually resemble an ASCII package name (homoglyph/lookalike attack)',
+        'recommendation': 'Replace with the canonical ASCII package name; rotate any credentials used by this package'
+    },
+
     # ========== Rust Build Script (compile-time execution) ==========
     'SUPPLY-022': {
         'pattern': r'Command::new\s*\(\s*["\'](?:curl|wget|bash|sh|nc|python3?|node|pwsh|powershell)["\']',
