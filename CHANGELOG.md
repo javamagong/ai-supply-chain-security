@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-04-07
+
+### Added
+- **Hardcoded API key / credential detection** (SECRET-001~008):
+  - Anthropic (`sk-ant-`), OpenAI (`sk-proj-`), AWS Access Key (`AKIA*`), GitHub PAT (`ghp_`/`github_pat_`), Slack (`xoxb-`), Google (`AIza`), HuggingFace (`hf_`)
+  - Scans all source file types; redacts matched value in output
+  - Skips test files, `.example`/`.sample` templates, and `node_modules/`
+- **Rust `build.rs` compile-time execution scanning** (SUPPLY-022/023):
+  - Detects shell/network tool spawning, TCP/UDP connections, file deletion, HTTP client imports, sensitive env var reads
+  - Escalates to SUPPLY-023 when `proc-macro = true` co-exists with `build.rs`
+- **IDE configuration attack detection** (IDE-001~004):
+  - VS Code `tasks.json`: auto-run on folder open, dangerous command execution
+  - VS Code `settings.json`: PATH hijacking via `terminal.integrated.env.*`, Python venv auto-activation
+  - IntelliJ IDEA `workspace.xml`: dangerous run configurations
+- **Makefile / Taskfile build script attack detection** (BUILD-001~003):
+  - `curl|bash`, `wget|sh`, `$(shell curl...)`, `$(eval wget...)` patterns
+  - Covers `Makefile`, `GNUmakefile`, `Taskfile.yml`, `Taskfile.yaml`
+- **Unicode homoglyph package name detection** (SUPPLY-030):
+  - Built-in confusables map for Cyrillic, Greek, fullwidth → ASCII transliteration
+  - Integrated into npm and Python dependency checks
+- **GitHub Actions enhanced detection** (GHAS-001~003):
+  - Pwn Request pattern: `pull_request_target` + fork head checkout (CRITICAL)
+  - `::set-env` deprecated command injection
+  - `::add-path` deprecated PATH injection
+  - Untrusted `github.event.pull_request.title/body` in run steps
+
+### Fixed
+- Secret scanner now skips test files (`test_*.py`, `*.spec.ts`, files in `tests/` dir) to eliminate false positives
+- `check_python_dependencies()` now uses `errors='ignore'` to handle non-UTF-8 package names (homoglyph test support)
+
+### Changed
+- Scanner version display updated to v2.2
+- SKILL.md comprehensively rewritten to reflect all detection capabilities
+
 ## [2.1.0] - 2026-04-03
 
 ### Added

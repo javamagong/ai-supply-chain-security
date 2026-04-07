@@ -493,6 +493,24 @@ SECURITY_RULES = {
         'recommendation': 'Use $GITHUB_PATH file output instead: echo "/my/path" >> $GITHUB_PATH'
     },
 
+    # ========== pytest conftest.py Auto-Execution ==========
+    'SUPPLY-031': {
+        'pattern': r'(?:subprocess|os\.system|requests\.|urllib\.|socket\.)',
+        'severity': 'WARNING',
+        'category': 'supply_chain',
+        'description': 'conftest.py contains network/subprocess calls that execute at pytest collection time',
+        'recommendation': 'Move side-effects inside test functions or scoped fixtures; never make unconditional network calls at module level'
+    },
+
+    # ========== Dependency Confusion Attack Surface ==========
+    'SUPPLY-032': {
+        'pattern': r'extra-index-url\s*[=:]\s*https?://',
+        'severity': 'INFO',
+        'category': 'supply_chain',
+        'description': 'extra-index-url enables dependency confusion: pip installs the highest version found across all indexes, preferring the public PyPI version if an attacker uploads a higher-versioned package',
+        'recommendation': 'Use --index-url only (single source of truth), or a package proxy (Artifactory/Nexus) that mirrors both private and public packages'
+    },
+
     # ========== Unicode Homoglyph Package Name Attack ==========
     'SUPPLY-030': {
         'pattern': r'[^\x00-\x7F]',   # Any non-ASCII character — contextual check done in auto_scanner

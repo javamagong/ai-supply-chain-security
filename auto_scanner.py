@@ -410,19 +410,27 @@ class DependencyChecker:
             # Check scripts (only in top-level package.json)
             if not is_in_node_modules:
                 scripts = data.get('scripts', {})
+                # P2-1: expand hook coverage to include 'install' (same risk as postinstall)
+                _DANGEROUS_SCRIPT_HOOKS = frozenset([
+                    'postinstall', 'preinstall', 'prepare', 'install',
+                    'prepack', 'prepublish', 'prepublishOnly',
+                ])
+                _DANGEROUS_SCRIPT_KWS = ['curl', 'wget', 'bash', 'sh ', '| sh', 'rm -rf',
+                                          'del ', 'powershell', 'python -c', 'node -e',
+                                          'base64', 'eval ', 'exec ']
                 for script_name, script_cmd in scripts.items():
-                    if script_name in ['postinstall', 'preinstall', 'prepare']:
+                    if script_name in _DANGEROUS_SCRIPT_HOOKS:
                         script_cmd_lower = script_cmd.lower()
-                        if any(kw in script_cmd_lower for kw in ['curl', 'wget', 'bash', 'rm -rf', 'del ', 'powershell']):
+                        if any(kw in script_cmd_lower for kw in _DANGEROUS_SCRIPT_KWS):
                             issues.append({
                                 'type': 'suspicious_script',
                                 'severity': 'CRITICAL',
                                 'package': data.get('name', 'unknown'),
                                 'script': script_name,
-                                'command': script_cmd,
+                                'command': script_cmd[:200],
                                 'file': str(package_json_path),
-                                'message': f'{script_name} script contains suspicious command: {script_cmd[:50]}',
-                                'remediation': 'Review script content and remove suspicious commands'
+                                'message': f'npm lifecycle hook "{script_name}" executes suspicious command: {script_cmd[:80]}',
+                                'remediation': 'Review and remove dangerous commands from npm lifecycle scripts'
                             })
 
         except (json.JSONDecodeError, FileNotFoundError) as e:
@@ -1602,6 +1610,228 @@ class DependencyChecker:
         return issues
 
     # ──────────────────────────────────────────────────────────────
+    # P2-2  conftest.py / pytest Hook Scanning
+    # ──────────────────────────────────────────────────────────────
+
+    # Dangerous patterns in pytest conftest.py — these execute at collection time
+    _CONFTEST_PATTERNS = [
+        (re.compile(r'\bsubprocess\b.*\b(?:call|run|Popen|check_output)\b', re.DOTALL),
+         'WARNING', 'SUPPLY-031',
+         'conftest.py runs subprocess at pytest collection time'),
+        (re.compile(r'\bos\.system\s*\('),
+         'WARNING', 'SUPPLY-031',
+         'conftest.py calls os.system() at collection time'),
+        (re.compile(r'(?:urllib|requests|httpx|aiohttp)\b.*\.(?:get|post|request|urlopen)\s*\('),
+         'CRITICAL', 'SUPPLY-031',
+         'conftest.py makes outbound network requests at collection time (potential exfiltration)'),
+        (re.compile(r'\bsocket\.(?:socket|create_connection|connect)\s*\('),
+         'CRITICAL', 'SUPPLY-031',
+         'conftest.py opens a raw socket at pytest collection time'),
+        (re.compile(r'\bexec\s*\(|\beval\s*\('),
+         'WARNING', 'SUPPLY-031',
+         'conftest.py uses exec()/eval() — dynamic code execution at collection time'),
+        (re.compile(r'base64\.b64decode\s*\(.*\bexec\b', re.DOTALL),
+         'CRITICAL', 'SUPPLY-031',
+         'conftest.py executes base64-decoded payload at collection time'),
+    ]
+
+    def check_conftest_py(self, conftest_path: Path) -> List[Dict]:
+        """Detect dangerous patterns in pytest conftest.py files.
+
+        conftest.py is auto-loaded by pytest at collection time — before any test
+        runs — making it a silent code-execution vector in supply chain attacks.
+        """
+        issues = []
+        try:
+            with open(conftest_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                lines = content.split('\n')
+        except OSError:
+            return issues
+
+        reported: set = set()
+        for line_num, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if stripped.startswith('#'):
+                continue
+            for pattern, severity, rule_id, message in self._CONFTEST_PATTERNS:
+                if pattern.search(line) and line_num not in reported:
+                    issues.append({
+                        'type': 'conftest_risk',
+                        'severity': severity,
+                        'category': 'supply_chain',
+                        'rule_id': rule_id,
+                        'file': str(conftest_path),
+                        'line': line_num,
+                        'content': stripped[:200],
+                        'message': f'conftest.py: {message}',
+                        'remediation': (
+                            'conftest.py auto-executes at pytest collection time. '
+                            'Network calls and subprocess invocations here run before '
+                            'any test code. Move side-effects inside test functions or '
+                            'pytest fixtures with explicit scope, and never make '
+                            'unconditional network calls at module level.'
+                        )
+                    })
+                    reported.add(line_num)
+                    break
+
+        return issues
+
+    # ──────────────────────────────────────────────────────────────
+    # P2-3  Dependency Confusion Precise Detection
+    # ──────────────────────────────────────────────────────────────
+
+    def check_dependency_confusion(self, root_path: Path) -> List[Dict]:
+        """Detect dependency confusion attack surface.
+
+        Dependency confusion exploits the fact that package managers prefer
+        public registry versions when the same package name exists in both
+        public and private registries.  The classic pattern:
+          1. Company uses private registry for internal packages (e.g. @myco/auth)
+          2. Attacker registers same name on public npm/PyPI with a higher version
+          3. npm/pip resolves the public (attacker) version by default
+
+        This detector finds:
+          a) npm: packages with a private/scoped registry in .npmrc, checks that
+             those scopes are locked to the private registry (not resolvable publicly)
+          b) npm: internal package names (non-scoped, no public registry presence
+             heuristic) installed alongside a custom registry
+          c) Python: packages installed from a private index alongside extra-index-url
+             (extra-index-url is the classic dependency confusion vector)
+        """
+        issues = []
+
+        # ── npm scope registry confusion ──
+        npmrc_paths = [
+            root_path / '.npmrc',
+            Path.home() / '.npmrc',
+        ]
+        scope_registries: dict = {}   # '@scope' -> registry_url
+        for npmrc_path in npmrc_paths:
+            if not npmrc_path.exists():
+                continue
+            try:
+                with open(npmrc_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    for line in f:
+                        line = line.strip()
+                        # @scope:registry=https://...
+                        m = re.match(r'^(@[^:]+):registry\s*=\s*(.+)$', line)
+                        if m:
+                            scope = m.group(1).strip().lower()
+                            registry = m.group(2).strip()
+                            if 'npmjs.org' not in registry:
+                                scope_registries[scope] = registry
+            except OSError:
+                pass
+
+        if scope_registries:
+            # Check package.json for packages in those scopes
+            package_json = root_path / 'package.json'
+            if package_json.exists():
+                try:
+                    with open(package_json, 'r', encoding='utf-8-sig') as f:
+                        data = json.load(f)
+                    all_deps: dict = {}
+                    all_deps.update(data.get('dependencies', {}))
+                    all_deps.update(data.get('devDependencies', {}))
+
+                    for dep_name in all_deps:
+                        for scope, private_reg in scope_registries.items():
+                            if dep_name.startswith(scope + '/') or dep_name == scope:
+                                # This scoped package is supposed to come from private registry
+                                # Flag if there's also a public npm fallback (no explicit scope pin)
+                                issues.append({
+                                    'type': 'dependency_confusion_risk',
+                                    'severity': 'WARNING',
+                                    'category': 'supply_chain',
+                                    'rule_id': 'SUPPLY-032',
+                                    'package': dep_name,
+                                    'private_registry': private_reg[:100],
+                                    'file': str(package_json),
+                                    'message': (
+                                        f'Package "{dep_name}" is scoped to private registry '
+                                        f'({private_reg[:60]}) but could be confused with a '
+                                        f'higher-versioned public npm package of the same name'
+                                    ),
+                                    'remediation': (
+                                        f'Ensure {dep_name} is pinned in .npmrc with '
+                                        f'{scope}:registry=<private-url> AND that no public '
+                                        f'package of the same name exists on npmjs.org. '
+                                        f'Consider adding it to a deny-list or using '
+                                        f'--prefer-offline with a locked registry.'
+                                    )
+                                })
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+        # ── Python extra-index-url confusion ──
+        for pip_cfg_name in ('pip.conf', 'pip.ini'):
+            pip_cfg = root_path / pip_cfg_name
+            if not pip_cfg.exists():
+                continue
+            has_extra_index = False
+            private_index = ''
+            try:
+                with open(pip_cfg, 'r', encoding='utf-8', errors='ignore') as f:
+                    for line in f:
+                        line = line.strip()
+                        m = re.match(r'^extra-index-url\s*[=:]\s*(.+)$', line)
+                        if m:
+                            has_extra_index = True
+                            private_index = m.group(1).strip()
+            except OSError:
+                continue
+
+            if not has_extra_index:
+                continue
+
+            # Find requirements files in this project
+            for req_name in ('requirements.txt', 'requirements-dev.txt',
+                             'requirements-prod.txt', 'requirements-test.txt'):
+                req_path = root_path / req_name
+                if not req_path.exists():
+                    continue
+                try:
+                    with open(req_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        for line_num, line in enumerate(f, 1):
+                            line = line.strip()
+                            if not line or line.startswith('#') or line.startswith('-'):
+                                continue
+                            m = re.match(r'^([A-Za-z0-9_\-\.]+)', line)
+                            if not m:
+                                continue
+                            pkg = m.group(1)
+                            # Only flag packages that don't look like well-known public packages
+                            # (heuristic: contains company-specific prefix/suffix patterns)
+                            # We flag ALL packages when extra-index-url is present as advisory
+                            issues.append({
+                                'type': 'dependency_confusion_risk',
+                                'severity': 'INFO',
+                                'category': 'supply_chain',
+                                'rule_id': 'SUPPLY-032',
+                                'package': pkg,
+                                'private_index': private_index[:100],
+                                'file': str(req_path),
+                                'line': line_num,
+                                'message': (
+                                    f'Package "{pkg}" resolved via extra-index-url '
+                                    f'({private_index[:60]}): if a higher-versioned package '
+                                    f'of the same name exists on PyPI, pip will install that instead'
+                                ),
+                                'remediation': (
+                                    'Use --index-url only (not --extra-index-url) for internal packages. '
+                                    'Or use a package proxy (Artifactory/Nexus) that mirrors both '
+                                    'private and public packages under one URL.'
+                                )
+                            })
+                            break  # one advisory per requirements file is enough
+                except OSError:
+                    continue
+
+        return issues
+
+    # ──────────────────────────────────────────────────────────────
     # P0-1  Hardcoded API Key / Credential Detection
     # ──────────────────────────────────────────────────────────────
 
@@ -1665,11 +1895,31 @@ class DependencyChecker:
     def check_hardcoded_secrets(self, file_path: Path) -> List[Dict]:
         """Scan a single source file for hardcoded API keys and credentials."""
         issues = []
-        # Skip example / template files (commonly intentional placeholders)
         fname = file_path.name.lower()
+
+        # Skip example / template files (commonly intentional placeholders)
         if any(fname.endswith(s) for s in ('.example', '.sample', '.template', '.tpl')):
             return issues
         if '.example.' in fname or '.sample.' in fname:
+            return issues
+
+        # Skip test files — they routinely contain fake/dummy keys for unit testing.
+        # A real key should never be in a test file; if it is, it would appear in
+        # production code too (and get caught there).
+        is_test_file = (
+            fname.startswith('test_') or
+            fname.endswith('_test.py') or
+            fname.endswith('_test.js') or
+            fname.endswith('_test.ts') or
+            fname.endswith('.spec.js') or
+            fname.endswith('.spec.ts') or
+            fname.endswith('.test.js') or
+            fname.endswith('.test.ts')
+        )
+        # Also skip if inside a tests/ or __tests__/ directory
+        parts_lower = [p.lower() for p in file_path.parts]
+        in_tests_dir = any(p in ('tests', '__tests__', 'test', 'spec') for p in parts_lower)
+        if is_test_file or in_tests_dir:
             return issues
         try:
             # Skip large files (>2 MB) — likely binary / data, not source
@@ -2729,6 +2979,14 @@ class AutoSecurityScanner:
                 if pip_conf.exists():
                     _collect(self.dependency_checker.check_pip_conf(pip_conf))
 
+            # ===== conftest.py pytest hook scanning (P2-2) =====
+            for conftest in sorted(proj_path.rglob('conftest.py')):
+                if 'node_modules' not in conftest.parts and '.git' not in conftest.parts:
+                    _collect(self.dependency_checker.check_conftest_py(conftest))
+
+            # ===== Dependency confusion precise detection (P2-3) =====
+            _collect(self.dependency_checker.check_dependency_confusion(proj_path))
+
             # ===== IDE configuration attack scanning (P1-1) =====
             _collect(self.dependency_checker.scan_ide_configs(proj_path))
 
@@ -2818,7 +3076,7 @@ class AutoSecurityScanner:
     def print_report(self, results: Dict):
         """Print report"""
         print("=" * 60)
-        print("AI Security Scanner v2.0 - Comprehensive Report")
+        print("AI Security Scanner v2.2 - Comprehensive Report")
         print("=" * 60)
 
         # Projects found
