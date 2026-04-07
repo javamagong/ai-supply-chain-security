@@ -21,22 +21,15 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Test installation
+      - name: Install dependencies
         run: |
           python --version
           pip install -r requirements.txt
+          pip install pytest
 
-      - name: Run smoke tests
+      - name: Run tests
         run: |
-          python -c "
-          from auto_scanner import AutoSecurityScanner, DependencyChecker
-          from ai_scanner import SecurityScanner
-          scanner = AutoSecurityScanner()
-          checker = DependencyChecker()
-          print('Import and instantiation: OK')
-          "
-          python ai-scanner.py --help > /dev/null
-          echo "CLI help: OK"
+          pytest tests/ -v
 
       - name: Run scanner self-check
         run: |
