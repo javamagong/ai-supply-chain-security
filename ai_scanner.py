@@ -358,6 +358,80 @@ SECURITY_RULES = {
         'description': 'Execute code from hex byte sequence',
         'recommendation': 'Decode and review actual code'
     },
+
+    # ========== Hardcoded Secret / Credential Exposure ==========
+    'SECRET-001': {
+        'pattern': r'sk-ant-[A-Za-z0-9\-_]{20,}',
+        'severity': 'CRITICAL',
+        'category': 'secret_exposure',
+        'description': 'Hardcoded Anthropic API key detected in source code',
+        'recommendation': 'Remove immediately, rotate at console.anthropic.com, use environment variable'
+    },
+    'SECRET-002': {
+        'pattern': r'sk-(?:proj-[A-Za-z0-9\-_]{20,}|[A-Za-z0-9]{48})',
+        'severity': 'CRITICAL',
+        'category': 'secret_exposure',
+        'description': 'Hardcoded OpenAI API key detected in source code',
+        'recommendation': 'Remove immediately, rotate at platform.openai.com, use environment variable'
+    },
+    'SECRET-003': {
+        'pattern': r'(?<![A-Z0-9])AKIA[0-9A-Z]{16}(?![A-Z0-9])',
+        'severity': 'CRITICAL',
+        'category': 'secret_exposure',
+        'description': 'Hardcoded AWS Access Key ID detected in source code',
+        'recommendation': 'Remove immediately, deactivate in AWS IAM console, use IAM roles or environment variables'
+    },
+    'SECRET-004': {
+        'pattern': r'(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}',
+        'severity': 'CRITICAL',
+        'category': 'secret_exposure',
+        'description': 'Hardcoded GitHub Personal Access Token detected in source code',
+        'recommendation': 'Remove immediately, revoke at github.com/settings/tokens, use GitHub Secrets'
+    },
+    'SECRET-005': {
+        'pattern': r'github_pat_[A-Za-z0-9_]{82}',
+        'severity': 'CRITICAL',
+        'category': 'secret_exposure',
+        'description': 'Hardcoded GitHub Fine-grained PAT detected in source code',
+        'recommendation': 'Remove immediately, revoke at github.com/settings/tokens, use GitHub Secrets'
+    },
+    'SECRET-006': {
+        'pattern': r'xox[baprs]-[0-9A-Za-z\-]{10,72}',
+        'severity': 'CRITICAL',
+        'category': 'secret_exposure',
+        'description': 'Hardcoded Slack token detected in source code',
+        'recommendation': 'Remove immediately, rotate in Slack API dashboard, use environment variable'
+    },
+    'SECRET-007': {
+        'pattern': r'AIza[0-9A-Za-z\-_]{35}',
+        'severity': 'CRITICAL',
+        'category': 'secret_exposure',
+        'description': 'Hardcoded Google API key detected in source code',
+        'recommendation': 'Remove immediately, rotate in Google Cloud Console, restrict key usage'
+    },
+    'SECRET-008': {
+        'pattern': r'hf_[A-Za-z0-9]{34}',
+        'severity': 'WARNING',
+        'category': 'secret_exposure',
+        'description': 'Possible HuggingFace API token detected in source code',
+        'recommendation': 'Remove and rotate if real, use environment variable instead'
+    },
+
+    # ========== Rust Build Script (compile-time execution) ==========
+    'SUPPLY-022': {
+        'pattern': r'Command::new\s*\(\s*["\'](?:curl|wget|bash|sh|nc|python3?|node|pwsh|powershell)["\']',
+        'severity': 'CRITICAL',
+        'category': 'supply_chain',
+        'description': 'Rust build.rs spawns a network/shell tool at compile time — compile-time supply chain RCE',
+        'recommendation': 'Remove network/shell calls from build.rs; build scripts should only emit cargo: directives'
+    },
+    'SUPPLY-023': {
+        'pattern': r'proc-macro\s*=\s*true',
+        'severity': 'INFO',
+        'category': 'supply_chain',
+        'description': 'Rust proc-macro crate executes arbitrary code at compile time (cargo build / cargo check)',
+        'recommendation': 'Audit proc-macro crates thoroughly; they have full host system access during compilation'
+    },
 }
 
 # Target file patterns

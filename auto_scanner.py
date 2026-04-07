@@ -1599,6 +1599,238 @@ class DependencyChecker:
 
         return issues
 
+    # ──────────────────────────────────────────────────────────────
+    # P0-1  Hardcoded API Key / Credential Detection
+    # ──────────────────────────────────────────────────────────────
+
+    # Compiled patterns for well-known credential formats.
+    # Each entry: (rule_id, display_name, compiled_regex, severity)
+    _SECRET_PATTERNS = [
+        ('SECRET-001', 'Anthropic API Key',
+         re.compile(r'sk-ant-[A-Za-z0-9\-_]{20,}'), 'CRITICAL'),
+        ('SECRET-002', 'OpenAI API Key',
+         re.compile(r'sk-(?:proj-[A-Za-z0-9\-_]{20,}|[A-Za-z0-9]{48})'), 'CRITICAL'),
+        ('SECRET-003', 'AWS Access Key ID',
+         re.compile(r'(?<![A-Z0-9])AKIA[0-9A-Z]{16}(?![A-Z0-9])'), 'CRITICAL'),
+        ('SECRET-004', 'GitHub PAT (classic)',
+         re.compile(r'(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}'), 'CRITICAL'),
+        ('SECRET-005', 'GitHub Fine-grained PAT',
+         re.compile(r'github_pat_[A-Za-z0-9_]{82}'), 'CRITICAL'),
+        ('SECRET-006', 'Slack Token',
+         re.compile(r'xox[baprs]-[0-9A-Za-z\-]{10,72}'), 'CRITICAL'),
+        ('SECRET-007', 'Google API Key',
+         re.compile(r'AIza[0-9A-Za-z\-_]{35}'), 'CRITICAL'),
+        ('SECRET-008', 'HuggingFace Token',
+         re.compile(r'hf_[A-Za-z0-9]{34}'), 'WARNING'),
+    ]
+
+    # Source file extensions eligible for secret scanning
+    _SECRET_SCAN_EXTENSIONS = {
+        '.py', '.js', '.ts', '.jsx', '.tsx', '.go', '.rs', '.java',
+        '.rb', '.php', '.cs', '.cpp', '.c', '.h', '.sh', '.bash',
+        '.zsh', '.ps1', '.yaml', '.yml', '.toml', '.ini', '.cfg',
+        '.conf', '.json', '.env', '.txt', '.md',
+    }
+
+    # Directories that are never scanned for secrets
+    _SECRET_SKIP_DIRS = {
+        'node_modules', '.git', '__pycache__', 'dist', 'build', 'target',
+        '.next', '.nuxt', 'venv', '.venv', 'env', '.tox', 'coverage',
+        '.pytest_cache', '.mypy_cache', '.ruff_cache', 'site-packages',
+    }
+
+    # Substrings in a matched value that indicate a placeholder / non-real secret.
+    # Keep these specific: overly-short patterns (e.g. '1234', 'abcd') create too many
+    # false positives because they can appear inside real credential strings.
+    _SECRET_FP_INDICATORS = [
+        'xxxx', 'yyyy', 'test', 'example', 'placeholder',
+        'your_', 'your-', 'dummy', 'fake', 'sample',
+        'changeme', 'replace_', '<key', '***',
+        'key_here', 'token_here', 'secret_here', 'insert_here',
+    ]
+
+    def _redact_secret(self, value: str) -> str:
+        """Show only the prefix and suffix to prove detection without full exposure."""
+        if len(value) <= 12:
+            return value[:4] + '****'
+        return value[:10] + '...' + value[-4:]
+
+    def _is_false_positive_secret(self, match_value: str) -> bool:
+        """Return True if the matched string looks like a placeholder, not a real credential."""
+        lower = match_value.lower()
+        return any(ind in lower for ind in self._SECRET_FP_INDICATORS)
+
+    def check_hardcoded_secrets(self, file_path: Path) -> List[Dict]:
+        """Scan a single source file for hardcoded API keys and credentials."""
+        issues = []
+        # Skip example / template files (commonly intentional placeholders)
+        fname = file_path.name.lower()
+        if any(fname.endswith(s) for s in ('.example', '.sample', '.template', '.tpl')):
+            return issues
+        if '.example.' in fname or '.sample.' in fname:
+            return issues
+        try:
+            # Skip large files (>2 MB) — likely binary / data, not source
+            if file_path.stat().st_size > 2 * 1024 * 1024:
+                return issues
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line_num, line in enumerate(f, 1):
+                    if len(line) > 5000:   # skip minified lines
+                        continue
+                    for rule_id, label, pattern, severity in self._SECRET_PATTERNS:
+                        for m in pattern.finditer(line):
+                            val = m.group(0)
+                            if self._is_false_positive_secret(val):
+                                continue
+                            issues.append({
+                                'type': 'hardcoded_secret',
+                                'severity': severity,
+                                'category': 'secret_exposure',
+                                'rule_id': rule_id,
+                                'file': str(file_path),
+                                'line': line_num,
+                                'content': self._redact_secret(val),
+                                'message': f'Hardcoded {label} detected — '
+                                           f'key starts with: {self._redact_secret(val)}',
+                                'remediation': (
+                                    f'Remove this {label} from source immediately, '
+                                    f'rotate it at the provider dashboard, '
+                                    f'and store it in an environment variable or secrets manager.'
+                                )
+                            })
+                            break  # one finding per rule per line
+        except (OSError, PermissionError):
+            pass
+        return issues
+
+    def scan_for_secrets(self, root_path: Path) -> List[Dict]:
+        """Walk a project directory and scan all source files for hardcoded secrets."""
+        issues = []
+        for dirpath, dirnames, filenames in os.walk(root_path):
+            # Prune directories in-place to avoid descending into noise
+            dirnames[:] = [
+                d for d in dirnames
+                if d not in self._SECRET_SKIP_DIRS
+                and not d.endswith('.egg-info')
+            ]
+            for filename in filenames:
+                fpath = Path(dirpath) / filename
+                ext = fpath.suffix.lower()
+                # Always scan .env files and Makefiles regardless of extension
+                is_env_file = filename.startswith('.env')
+                is_makefile = filename in ('Makefile', 'GNUmakefile', 'makefile')
+                if ext not in self._SECRET_SCAN_EXTENSIONS and not is_env_file and not is_makefile:
+                    continue
+                issues.extend(self.check_hardcoded_secrets(fpath))
+        return issues
+
+    # ──────────────────────────────────────────────────────────────
+    # P0-2  Rust build.rs Compile-time Execution Scanning
+    # ──────────────────────────────────────────────────────────────
+
+    # Dangerous patterns inside Rust build scripts.
+    # Each entry: (compiled_regex, severity, rule_id, short_message)
+    _BUILD_RS_PATTERNS = [
+        # Shell / network tools spawned at compile time — critical RCE
+        (re.compile(
+            r'Command::new\s*\(\s*["\']'
+            r'(?:curl|wget|bash|sh|nc|ncat|python3?|node|pwsh|powershell)'
+            r'["\']', re.IGNORECASE),
+         'CRITICAL', 'SUPPLY-022',
+         'build.rs spawns a network/shell tool at compile time (RCE)'),
+        # Raw TCP connection from build script
+        (re.compile(r'TcpStream::connect\s*\('),
+         'CRITICAL', 'SUPPLY-022',
+         'build.rs opens a TCP connection (compile-time network exfiltration risk)'),
+        # Destructive file system operations
+        (re.compile(r'fs::remove_(?:file|dir_all)\s*\('),
+         'CRITICAL', 'SUPPLY-022',
+         'build.rs deletes files at compile time (destructive operation)'),
+        # HTTP client library import
+        (re.compile(r'\b(?:reqwest|ureq|isahc|minreq|attohttpc|hyper)\b'),
+         'WARNING', 'SUPPLY-022',
+         'build.rs imports HTTP client (potential compile-time network access)'),
+        # Reading sensitive environment variables (credential theft vector)
+        (re.compile(
+            r'env::(?:var|var_os)\s*\(\s*["\'][^"\']*'
+            r'(?:KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH|PRIVATE)'
+            r'[^"\']*["\']', re.IGNORECASE),
+         'WARNING', 'SUPPLY-022',
+         'build.rs reads a sensitive environment variable'),
+        # UDP socket
+        (re.compile(r'UdpSocket::bind\s*\('),
+         'WARNING', 'SUPPLY-022',
+         'build.rs opens a UDP socket'),
+        # General subprocess — catch-all with lower severity
+        (re.compile(r'Command::new\s*\('),
+         'WARNING', 'SUPPLY-022',
+         'build.rs spawns a subprocess — verify it makes no network calls or reads secrets'),
+    ]
+
+    def check_build_rs(self, build_rs_path: Path) -> List[Dict]:
+        """Scan a Rust build.rs for dangerous compile-time operations."""
+        issues = []
+        reported_lines: set = set()
+        try:
+            with open(build_rs_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
+        except (OSError, PermissionError):
+            return issues
+
+        for line_num, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if stripped.startswith('//') or stripped.startswith('#'):
+                continue
+            for pattern, severity, rule_id, message in self._BUILD_RS_PATTERNS:
+                if pattern.search(line) and line_num not in reported_lines:
+                    issues.append({
+                        'type': 'build_script_risk',
+                        'severity': severity,
+                        'category': 'supply_chain',
+                        'rule_id': rule_id,
+                        'file': str(build_rs_path),
+                        'line': line_num,
+                        'content': stripped[:200],
+                        'message': f'Rust build.rs: {message}',
+                        'remediation': (
+                            'build.rs executes at compile time with full host access. '
+                            'It should only emit cargo:rerun-if-changed / cargo:rustc-cfg '
+                            'directives. Remove network calls, subprocess spawning, and '
+                            'reads of secrets.'
+                        )
+                    })
+                    reported_lines.add(line_num)
+                    break  # one finding per line
+
+        # Bonus: if this crate is also declared proc-macro, flag double risk
+        cargo_toml = build_rs_path.parent / 'Cargo.toml'
+        if cargo_toml.exists() and issues:
+            try:
+                cargo_content = cargo_toml.read_text(encoding='utf-8', errors='ignore')
+                if re.search(r'proc-macro\s*=\s*true', cargo_content):
+                    issues.append({
+                        'type': 'proc_macro_with_build_script',
+                        'severity': 'CRITICAL',
+                        'category': 'supply_chain',
+                        'rule_id': 'SUPPLY-023',
+                        'file': str(build_rs_path),
+                        'line': 0,
+                        'content': 'Cargo.toml: proc-macro = true + build.rs present',
+                        'message': (
+                            'Proc-macro crate with build.rs: '
+                            'double compile-time code execution path'
+                        ),
+                        'remediation': (
+                            'Proc-macro crates already execute at compile time via the macro '
+                            'expansion pass. Adding build.rs creates a second execution path. '
+                            'This combination warrants thorough security review.'
+                        )
+                    })
+            except (OSError, PermissionError):
+                pass
+
+        return issues
+
 
 class FileChangeMonitor:
     """File change monitor"""
@@ -1976,6 +2208,16 @@ class AutoSecurityScanner:
                 pip_conf = proj_path / pip_conf_name
                 if pip_conf.exists():
                     _collect(self.dependency_checker.check_pip_conf(pip_conf))
+
+            # ===== Hardcoded secret / credential scanning =====
+            _collect(self.dependency_checker.scan_for_secrets(proj_path))
+
+            # ===== Rust build.rs compile-time execution scanning =====
+            if 'rust' in types:
+                for build_rs in sorted(proj_path.rglob('build.rs')):
+                    # Skip build.rs files inside the compiled output directory
+                    if 'target' not in build_rs.parts:
+                        _collect(self.dependency_checker.check_build_rs(build_rs))
 
             # Global ~/.npmrc (scan once from root project)
             if proj_path == root_path:
