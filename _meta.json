@@ -1,11 +1,11 @@
 {
   "ownerId": "javamagong",
   "slug": "ai-supply-chain-security",
-  "version": "2.0.1",
-  "description": "AI Supply Chain Security Scanner - Detect malicious hooks, MCP servers, prompt injection, and supply chain attacks in Claude Code, Cursor, and other AI coding assistants",
-  "shortDescription": "AI Supply Chain Security - Detect hooks and supply chain attacks",
+  "version": "2.2.1",
+  "description": "AI Supply Chain Security Scanner - Detect malicious hooks, MCP servers, prompt injection, and supply chain attacks in Claude Code, Cursor, and other AI coding assistants. v2.2 adds timeout protection, progress tracking, logging, and 6 new Docker security rules.",
+  "shortDescription": "AI Security Scanner v2.2 - Timeout protection + Docker rules",
   "category": "security",
-  "tags": ["security", "ai", "supply-chain", "coding", "claude-code", "cursor", "hooks", "npm", "python", "mcp", "prompt-injection", "malicious-packages"],
+  "tags": ["security", "ai", "supply-chain", "coding", "claude-code", "cursor", "hooks", "npm", "python", "mcp", "prompt-injection", "malicious-packages", "docker", "performance"],
   "platforms": ["windows", "macos", "linux"],
   "requirements": {
     "python": "3.8"
@@ -15,5 +15,6 @@
   "homepage": "https://github.com/javamagong/ai-supply-chain-security",
   "repository": "https://github.com/javamagong/ai-supply-chain-security",
   "issues": "https://github.com/javamagong/ai-supply-chain-security/issues",
-  "publishedAt": 1775180508000
+  "publishedAt": 1776052543000,
+  "changelog": "v2.2.1: Fix crash on large directories - add file timeout (5s), total timeout (10min), file size limit (10MB), progress tracking, logging, YAML config support, 6 new Docker rules (DOCKER-001~006), CLAUDE-006 MCP injection detection, test suite (4 tests)"
 }
