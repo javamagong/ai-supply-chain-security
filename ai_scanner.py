@@ -17,10 +17,20 @@ import json
 import re
 import argparse
 import hashlib
+import signal
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+
+# YAML config support
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
 
 # Cross-platform color support
 class Colors:
@@ -44,6 +54,24 @@ class Colors:
         cls.CYAN = ''
         cls.RESET = ''
         cls.BOLD = ''
+
+
+# Logging configuration
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('ai_scanner.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+
+# Timeout exception
+class ScanTimeoutError(Exception):
+    """Scan timeout exception"""
+    pass
 
 # Build sensitive detection patterns from parts to avoid false-positive flagging
 # by downstream security scanners (the dangerous substrings only exist at runtime)
@@ -535,6 +563,59 @@ SECURITY_RULES = {
         'description': 'Rust proc-macro crate executes arbitrary code at compile time (cargo build / cargo check)',
         'recommendation': 'Audit proc-macro crates thoroughly; they have full host system access during compilation'
     },
+
+    # ========== Dockerfile Supply Chain ==========
+    'DOCKER-001': {
+        'pattern': r'(?:curl|wget)\s+.*\|\s*(?:ba)?sh',
+        'severity': 'CRITICAL',
+        'category': 'supply_chain',
+        'description': 'Dockerfile RUN pipes a download directly to shell — supply chain RCE at image build time',
+        'recommendation': 'Download to a file, verify checksum with sha256sum, then execute explicitly'
+    },
+    'DOCKER-002': {
+        'pattern': r'^ADD\s+https?://',
+        'severity': 'WARNING',
+        'category': 'supply_chain',
+        'description': 'Dockerfile ADD fetches a remote URL — content is not checksummed, enabling man-in-the-middle substitution',
+        'recommendation': 'Use RUN curl/wget with explicit --checksum or --sha256 verification instead of ADD'
+    },
+    'DOCKER-003': {
+        'pattern': r'^FROM\s+\S+:latest\b',
+        'severity': 'WARNING',
+        'category': 'supply_chain',
+        'description': 'Dockerfile uses :latest tag — image content changes silently with upstream updates',
+        'recommendation': 'Pin to a specific version tag or image digest (FROM image@sha256:...)'
+    },
+    'DOCKER-004': {
+        'pattern': r'^RUN\s+.*(?:pip install|npm install\s+-g)\s+[^=><\[]+$',
+        'severity': 'WARNING',
+        'category': 'supply_chain',
+        'description': 'Dockerfile installs unpinned Python/Node packages — version may change on rebuild',
+        'recommendation': 'Pin all package versions (pip install requests==2.31.0) and verify with hashes'
+    },
+    'DOCKER-005': {
+        'pattern': r'^(?:ARG|ENV)\s+.*(?:PASSWORD|SECRET|TOKEN|KEY|PASSWD|API_KEY)\s*=\s*\S',
+        'severity': 'CRITICAL',
+        'category': 'secret_exposure',
+        'description': 'Dockerfile bakes a secret into ARG or ENV — visible in docker history and image layers',
+        'recommendation': 'Use Docker BuildKit --secret mount or runtime environment variables instead'
+    },
+    'DOCKER-006': {
+        'pattern': r'^USER\s+(?:root|0)\s*$',
+        'severity': 'WARNING',
+        'category': 'supply_chain',
+        'description': 'Container runs as root — any container escape grants full host access',
+        'recommendation': 'Add a non-root USER instruction; use numeric UIDs for clarity (USER 1001)'
+    },
+
+    # ========== MCP Tool Description Prompt Injection ==========
+    'CLAUDE-006': {
+        'pattern': r'(?i)(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|prior|above)',
+        'severity': 'CRITICAL',
+        'category': 'prompt_injection',
+        'description': 'MCP tool or server description contains prompt injection — tool descriptions are passed to the AI as trusted context, so injected instructions execute with full AI authority',
+        'recommendation': 'Remove the malicious content immediately. Only install MCP servers from verified, trusted sources. Audit all tool descriptions before connecting.'
+    },
 }
 
 # Target file patterns
@@ -589,6 +670,12 @@ class AISecurityScanner:
         self.issues: List[AISecurityIssue] = []
         self.scanned_files = 0
         self.start_time = None
+        
+        # Performance settings
+        self.max_file_size = self.config.get('max_file_size', 10 * 1024 * 1024)  # 10MB
+        self.file_timeout = self.config.get('file_timeout', 5)  # 5 seconds per file
+        self.total_timeout = self.config.get('total_timeout', 600)  # 10 minutes total
+        self.progress_interval = self.config.get('progress_interval', 100)  # Progress every N files
 
         # Exclude patterns
         self.exclude_patterns = self.config.get('exclude_patterns', [
@@ -601,6 +688,17 @@ class AISecurityScanner:
             '.venv',
             'vendor'
         ])
+        
+        # Compile regex patterns for better performance
+        self.compiled_rules = {}
+        for rule_id, rule in SECURITY_RULES.items():
+            try:
+                self.compiled_rules[rule_id] = {
+                    'pattern': re.compile(rule['pattern'], re.IGNORECASE),
+                    'rule': rule
+                }
+            except re.error as e:
+                logger.warning(f"Invalid regex pattern for {rule_id}: {e}")
 
     def should_exclude(self, path: Path) -> bool:
         """Check if path should be excluded"""
@@ -610,25 +708,27 @@ class AISecurityScanner:
                 return True
         return False
 
-    def scan_file(self, file_path: Path) -> List[AISecurityIssue]:
-        """Scan a single file"""
+    def _scan_file_impl(self, file_path: Path) -> List[AISecurityIssue]:
+        """Internal file scan implementation (without timeout wrapper)"""
         issues = []
 
         try:
             # Check file size
-            if file_path.stat().st_size > 10 * 1024 * 1024:  # 10MB
+            file_size = file_path.stat().st_size
+            if file_size > self.max_file_size:
+                logger.debug(f"Skipping {file_path}: file size {file_size} exceeds limit")
                 return issues
 
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 lines = f.readlines()
 
-            self.scanned_files += 1
             content = ''.join(lines)
 
-            # Scan line by line
+            # Scan line by line using compiled patterns
             for line_num, line in enumerate(lines, 1):
-                for rule_id, rule in SECURITY_RULES.items():
-                    if re.search(rule['pattern'], line, re.IGNORECASE):
+                for rule_id, compiled in self.compiled_rules.items():
+                    if compiled['pattern'].search(line):
+                        rule = compiled['rule']
                         issue = AISecurityIssue(
                             rule_id=rule_id,
                             file_path=str(file_path),
@@ -638,9 +738,10 @@ class AISecurityScanner:
                         issues.append(issue)
 
             # Scan entire file content (for multi-line matching)
-            for rule_id, rule in SECURITY_RULES.items():
+            for rule_id, compiled in self.compiled_rules.items():
+                rule = compiled['rule']
                 if 'supply_chain' in rule.get('category', ''):
-                    if re.search(rule['pattern'], content, re.IGNORECASE | re.MULTILINE):
+                    if compiled['pattern'].search(content):
                         # Avoid duplicates
                         if not any(i.rule_id == rule_id and i.file_path == str(file_path) for i in issues):
                             issue = AISecurityIssue(
@@ -652,10 +753,27 @@ class AISecurityScanner:
                             issues.append(issue)
 
         except Exception as e:
-            # Silent failure, continue scanning other files
-            pass
+            logger.warning(f"Error scanning {file_path}: {e}")
 
         return issues
+
+    def scan_file(self, file_path: Path) -> List[AISecurityIssue]:
+        """Scan a single file with timeout"""
+        try:
+            # Use thread pool for timeout control
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(self._scan_file_impl, file_path)
+                try:
+                    issues = future.result(timeout=self.file_timeout)
+                    self.scanned_files += 1
+                    return issues
+                except FuturesTimeoutError:
+                    logger.warning(f"Timeout scanning {file_path} (> {self.file_timeout}s)")
+                    future.cancel()
+                    return []
+        except Exception as e:
+            logger.warning(f"Error scanning {file_path}: {e}")
+            return []
 
     def find_target_files(self, root_path: Path) -> List[Path]:
         """Find all target files"""
@@ -687,23 +805,43 @@ class AISecurityScanner:
         return list(set(target_files))
 
     def scan_directory(self, path: str) -> List[AISecurityIssue]:
-        """Scan directory"""
+        """Scan directory with progress tracking and timeout"""
         root_path = Path(path).resolve()
 
         if not root_path.exists():
             print(f"❌ Path not found: {path}")
             return []
 
-        print(f"Scanning directory: {root_path}")
+        logger.info(f"Scanning directory: {root_path}")
+        print(f"{Colors.CYAN}Scanning directory: {root_path}{Colors.RESET}")
 
         # Find target files
         target_files = self.find_target_files(root_path)
-        print(f"Found {len(target_files)} target files")
+        total_files = len(target_files)
+        logger.info(f"Found {total_files} target files")
+        print(f"{Colors.BLUE}Found {total_files} target files{Colors.RESET}")
 
-        # Scan each file
-        for file_path in target_files:
+        # Scan each file with progress tracking
+        start_time = time.time()
+        for idx, file_path in enumerate(target_files, 1):
+            # Check total timeout
+            elapsed = time.time() - start_time
+            if elapsed > self.total_timeout:
+                logger.warning(f"Total scan timeout exceeded ({self.total_timeout}s)")
+                print(f"{Colors.YELLOW}⚠️  Total scan timeout exceeded ({self.total_timeout}s){Colors.RESET}")
+                break
+
+            # Scan file
             file_issues = self.scan_file(file_path)
             self.issues.extend(file_issues)
+
+            # Progress output
+            if idx % self.progress_interval == 0 or idx == total_files:
+                progress = (idx / total_files) * 100
+                elapsed = time.time() - start_time
+                rate = idx / elapsed if elapsed > 0 else 0
+                logger.info(f"Progress: {idx}/{total_files} ({progress:.1f}%) - {len(self.issues)} issues found")
+                print(f"{Colors.GREEN}Progress: {idx}/{total_files} ({progress:.1f}%) - {len(self.issues)} issues found{Colors.RESET}")
 
         return self.issues
 
@@ -800,25 +938,84 @@ class AISecurityScanner:
             output_file: Optional[str] = None, ci_mode: bool = False) -> int:
         """Execute scan"""
         self.start_time = time.time()
+        logger.info(f"Starting security scan on {path}")
 
         # Scan
         self.scan_directory(path)
 
+        # Calculate elapsed time
+        elapsed = time.time() - self.start_time
+        
         # Generate report
         report = self.generate_report(output_format, output_file)
         print(f"\n{report}")
 
-        # Calculate elapsed time
-        elapsed = time.time() - self.start_time
-        print(f"Scan completed in {elapsed:.2f}s")
+        # Print summary
+        critical_count = len([i for i in self.issues if i.severity == 'CRITICAL'])
+        warning_count = len([i for i in self.issues if i.severity == 'WARNING'])
+        
+        print(f"\n{Colors.BOLD}=== Scan Summary ==={Colors.RESET}")
+        print(f"Files scanned: {self.scanned_files}")
+        print(f"Time elapsed: {elapsed:.2f}s")
+        print(f"Scan rate: {self.scanned_files / elapsed:.1f} files/sec" if elapsed > 0 else "N/A")
+        print(f"Total issues: {len(self.issues)}")
+        if critical_count > 0:
+            print(f"{Colors.RED}  - Critical: {critical_count}{Colors.RESET}")
+        if warning_count > 0:
+            print(f"{Colors.YELLOW}  - Warnings: {warning_count}{Colors.RESET}")
+        info_count = len([i for i in self.issues if i.severity == 'INFO'])
+        if info_count > 0:
+            print(f"{Colors.BLUE}  - Info: {info_count}{Colors.RESET}")
+        
+        logger.info(f"Scan completed: {self.scanned_files} files, {len(self.issues)} issues in {elapsed:.2f}s")
 
         # Return exit code in CI mode
         if ci_mode:
-            if any(i.severity == 'CRITICAL' for i in self.issues):
+            if critical_count > 0:
+                logger.warning("CI mode: CRITICAL issues found, returning exit code 2")
                 return 2
             elif self.issues:
+                logger.warning("CI mode: Issues found, returning exit code 1")
                 return 1
         return 0 if not self.issues else 1
+
+
+def load_config(config_path: Optional[str] = None) -> Dict:
+    """Load configuration from YAML file"""
+    if not YAML_AVAILABLE:
+        logger.warning("PyYAML not available, using default configuration")
+        return {}
+    
+    # Default config file paths
+    default_paths = [
+        'config.yaml',
+        'config.yml',
+        os.path.join(os.path.dirname(__file__), 'config.yaml'),
+        os.path.expanduser('~/.ai-scanner/config.yaml'),
+    ]
+    
+    config_file = None
+    if config_path:
+        if os.path.exists(config_path):
+            config_file = config_path
+    else:
+        for path in default_paths:
+            if os.path.exists(path):
+                config_file = path
+                break
+    
+    if not config_file:
+        logger.info("No config file found, using defaults")
+        return {}
+    
+    try:
+        with open(config_file, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        logger.info(f"Loaded config from {config_file}")
+        return config or {}
+    except Exception as e:
+        logger.warning(f"Error loading config: {e}")
+        return {}
 
 
 def main():
@@ -827,8 +1024,6 @@ def main():
     if sys.platform == 'win32':
         # Windows 10+ supports ANSI colors, but needs checking
         os.system('')  # Enable ANSI
-        # If colors display incorrectly, uncomment the following line
-        # Colors.disable()
 
     parser = argparse.ArgumentParser(
         description='AI Security Scanner - Detect malicious hooks and supply chain attacks',
@@ -848,6 +1043,8 @@ Examples:
     parser.add_argument('-f', '--format', choices=['text', 'json', 'markdown'],
                         default='text', help='Output format')
     parser.add_argument('-o', '--output', help='Output file path')
+    parser.add_argument('-c', '--config', 
+                        help='Config file path (default: config.yaml)')
     parser.add_argument('-w', '--watch', action='store_true',
                         help='Watch mode (continuous monitoring)')
     parser.add_argument('-i', '--interval', type=int, default=60,
@@ -856,13 +1053,31 @@ Examples:
                         help='CI/CD mode (return exit codes)')
     parser.add_argument('--exclude', nargs='+', default=[],
                         help='Patterns to exclude')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='Verbose output')
 
     args = parser.parse_args()
 
-    # Config
-    config = {}
+    # Set log level
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    # Load config
+    config = load_config(args.config)
+    
+    # Override with command line args
     if args.exclude:
         config['exclude_patterns'] = args.exclude
+    
+    # Set performance defaults if not in config
+    if 'max_file_size' not in config:
+        config['max_file_size'] = 10 * 1024 * 1024
+    if 'file_timeout' not in config:
+        config['file_timeout'] = 5
+    if 'total_timeout' not in config:
+        config['total_timeout'] = 600
+    if 'progress_interval' not in config:
+        config['progress_interval'] = 50
 
     scanner = AISecurityScanner(config)
 

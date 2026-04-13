@@ -2600,6 +2600,298 @@ class DependencyChecker:
 
         return issues
 
+    # ──────────────────────────────────────────────────────────────
+    # P3-1  Dockerfile Supply Chain Attack Detection
+    # ──────────────────────────────────────────────────────────────
+
+    # Patterns that flag dangerous Dockerfile instructions
+    _DOCKERFILE_PATTERNS = [
+        # curl/wget piped to shell inside RUN
+        (re.compile(r'RUN\b.*(?:curl|wget)\s+\S[^\n]*\|\s*(?:sudo\s+)?(?:ba)?sh\b', re.IGNORECASE),
+         'CRITICAL', 'DOCKER-001',
+         'RUN instruction downloads and executes remote code (curl/wget piped to shell)'),
+        # ADD with remote URL — silently downloads; COPY is preferred
+        (re.compile(r'^ADD\s+https?://', re.IGNORECASE | re.MULTILINE),
+         'WARNING', 'DOCKER-002',
+         'ADD with remote URL silently downloads content — use COPY + explicit download with checksum verification'),
+        # FROM with :latest tag — non-deterministic, supply chain risk
+        (re.compile(r'^FROM\s+\S+:latest\b', re.IGNORECASE | re.MULTILINE),
+         'WARNING', 'DOCKER-003',
+         'FROM uses :latest tag — non-deterministic base image, pin to a specific digest for reproducibility'),
+        # FROM with no tag at all (implies :latest)
+        (re.compile(r'^FROM\s+(?!scratch\b)([a-z0-9][a-z0-9._\-/:]*)(?:\s+AS\s+\w+)?\s*$', re.IGNORECASE | re.MULTILINE),
+         'INFO', 'DOCKER-003',
+         'FROM has no explicit tag — defaults to :latest, pin to a specific version or digest'),
+        # Unpinned pip install inside RUN (no ==)
+        (re.compile(r'RUN\b.*pip3?\s+install\b(?!.*==)', re.IGNORECASE),
+         'WARNING', 'DOCKER-004',
+         'RUN pip install without pinned versions — susceptible to dependency version hijacking'),
+        # Unpinned npm install inside RUN
+        (re.compile(r'RUN\b.*npm\s+install\b(?!\s+--save-exact|\s+-E)', re.IGNORECASE),
+         'INFO', 'DOCKER-004',
+         'RUN npm install without --save-exact — consider pinning all dependency versions'),
+        # eval of curl/wget output
+        (re.compile(r'RUN\b.*eval\s+["`\$]\(.*(?:curl|wget)\s', re.IGNORECASE),
+         'CRITICAL', 'DOCKER-001',
+         'RUN eval-executes downloaded remote content'),
+        # chmod +x on a downloaded script then execute
+        (re.compile(r'RUN\b.*(?:curl|wget).*&&.*chmod.*&&.*\./\S+', re.IGNORECASE),
+         'WARNING', 'DOCKER-001',
+         'RUN downloads a file, makes it executable, then runs it — verify source and checksum'),
+        # Secrets passed as ARG/ENV (visible in image history)
+        (re.compile(r'^(?:ARG|ENV)\s+\w*(?:KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL)\w*\s*=\s*\S',
+                    re.IGNORECASE | re.MULTILINE),
+         'CRITICAL', 'DOCKER-005',
+         'Secret/credential baked into image via ARG/ENV — visible in docker history and image layers'),
+        # Root user explicitly set
+        (re.compile(r'^USER\s+root\b', re.IGNORECASE | re.MULTILINE),
+         'WARNING', 'DOCKER-006',
+         'Container runs as root — use a non-root USER for least-privilege'),
+    ]
+
+    # Known malicious / compromised base images
+    _MALICIOUS_BASE_IMAGES = {
+        'alpine:3.15.0': 'CVE-2021-44228 Log4Shell affected version',
+        'node:15': 'End-of-life, no security patches',
+        'node:14': 'End-of-life, no security patches',
+        'python:3.6': 'End-of-life, no security patches',
+        'python:3.7': 'End-of-life, no security patches',
+        'ubuntu:16.04': 'End-of-life (Xenial), no security patches since April 2021',
+        'ubuntu:18.04': 'End-of-life (Bionic), reached EoL April 2023',
+        'debian:8': 'End-of-life (Jessie)',
+        'debian:9': 'End-of-life (Stretch)',
+        'centos:7': 'End-of-life June 2024',
+        'centos:8': 'End-of-life December 2021',
+    }
+
+    def check_dockerfile(self, dockerfile_path: Path) -> List[Dict]:
+        """Detect supply chain attack patterns in Dockerfile / Containerfile."""
+        issues = []
+        try:
+            with open(dockerfile_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                lines = content.split('\n')
+        except OSError:
+            return issues
+
+        reported_lines: set = set()
+
+        # Line-by-line pattern matching
+        for line_num, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if stripped.startswith('#'):
+                continue
+            for pattern, severity, rule_id, message in self._DOCKERFILE_PATTERNS:
+                if pattern.search(line) and line_num not in reported_lines:
+                    # DOCKER-003 "no tag" — don't double-report if :latest already caught
+                    if rule_id == 'DOCKER-003' and 'latest' in line.lower():
+                        continue
+                    issues.append({
+                        'type': 'dockerfile_risk',
+                        'severity': severity,
+                        'category': 'supply_chain',
+                        'rule_id': rule_id,
+                        'file': str(dockerfile_path),
+                        'line': line_num,
+                        'content': stripped[:200],
+                        'message': f'Dockerfile: {message}',
+                        'remediation': self._dockerfile_remediation(rule_id)
+                    })
+                    reported_lines.add(line_num)
+                    break
+
+        # Check base images against known EOL/malicious list
+        for line_num, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if not stripped.upper().startswith('FROM') or stripped.startswith('#'):
+                continue
+            m = re.match(r'FROM\s+(\S+?)(?:\s+AS\s+\w+)?\s*$', stripped, re.IGNORECASE)
+            if m:
+                image = m.group(1).lower()
+                for bad_image, reason in self._MALICIOUS_BASE_IMAGES.items():
+                    if image == bad_image or image.startswith(bad_image.split(':')[0] + ':'):
+                        if image == bad_image:
+                            issues.append({
+                                'type': 'eol_base_image',
+                                'severity': 'WARNING',
+                                'category': 'supply_chain',
+                                'rule_id': 'DOCKER-003',
+                                'file': str(dockerfile_path),
+                                'line': line_num,
+                                'content': stripped[:200],
+                                'message': f'Base image "{image}" is end-of-life or known vulnerable: {reason}',
+                                'remediation': 'Upgrade to a supported base image with active security patches'
+                            })
+
+        return issues
+
+    def _dockerfile_remediation(self, rule_id: str) -> str:
+        tips = {
+            'DOCKER-001': (
+                'Download to a file, verify its SHA256 checksum, then execute:\n'
+                '  RUN curl -fsSL https://example.com/script.sh -o /tmp/script.sh \\\n'
+                '   && echo "<expected-sha256>  /tmp/script.sh" | sha256sum -c \\\n'
+                '   && bash /tmp/script.sh'
+            ),
+            'DOCKER-002': (
+                'Replace ADD with COPY for local files, or use RUN curl + checksum verification:\n'
+                '  RUN curl -fsSL <url> -o /tmp/file \\\n'
+                '   && echo "<sha256>  /tmp/file" | sha256sum -c'
+            ),
+            'DOCKER-003': (
+                'Pin to a specific digest for full reproducibility:\n'
+                '  FROM node:20.11.0-alpine3.19@sha256:<digest>\n'
+                'Or at minimum use a specific version tag (not :latest).'
+            ),
+            'DOCKER-004': (
+                'Pin all dependency versions:\n'
+                '  pip install requests==2.31.0 flask==3.0.0\n'
+                '  # Or use a requirements.txt with pinned versions + pip install --no-deps'
+            ),
+            'DOCKER-005': (
+                'Never bake secrets into image layers. Use build-time secrets or runtime env vars:\n'
+                '  # Build-time: docker build --secret id=mysecret,src=.env\n'
+                '  # Runtime: docker run -e API_KEY=$API_KEY ...\n'
+                '  # Rotate any key already baked into an image layer.'
+            ),
+            'DOCKER-006': (
+                'Add a non-root user and switch to it:\n'
+                '  RUN useradd -r -u 1001 appuser\n'
+                '  USER appuser'
+            ),
+        }
+        return tips.get(rule_id, 'Review and remediate the identified issue.')
+
+    def scan_dockerfiles(self, root_path: Path) -> List[Dict]:
+        """Walk a project directory and scan all Dockerfiles."""
+        issues = []
+        skip_dirs = {'node_modules', '.git', '__pycache__', 'target', 'dist', 'build'}
+        for dirpath, dirnames, filenames in os.walk(root_path):
+            dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+            for filename in filenames:
+                if (filename == 'Dockerfile' or
+                        filename.startswith('Dockerfile.') or
+                        filename == 'Containerfile'):
+                    fpath = Path(dirpath) / filename
+                    issues.extend(self.check_dockerfile(fpath))
+        return issues
+
+    # ──────────────────────────────────────────────────────────────
+    # P3-2  MCP Tool Description Prompt Injection Detection
+    # ──────────────────────────────────────────────────────────────
+
+    # Tool description injection patterns — assembled at runtime (same split strategy as auto_scanner)
+    _MCP_DESC_INJECTION_PATTERNS = [
+        (re.compile(_join(
+            r'(?:ign', r'ore|disreg', r'ard)\s+(?:all\s+)?',
+            r'(?:prev', r'ious|above|prior)\s+(?:instr', r'uctions|rules|guidelines)'
+        ), re.IGNORECASE),
+         'Attempting to override prior instructions via tool description'),
+        (re.compile(_join(r'you\s+are\s+n', r'ow\s+(?:a|an)\s+'), re.IGNORECASE),
+         'Attempting to redefine AI role via tool description'),
+        (re.compile(_join(r'(?:new|overr', r'ide|replace)\s+sys', r'tem\s+pr', r'ompt'), re.IGNORECASE),
+         'Attempting to replace system prompt via tool description'),
+        (re.compile(_join(
+            r'(?:IMP', r'ORTANT|CRIT', r'ICAL|URG', r'ENT)\s*:\s*',
+            r'(?:ign', r'ore|overr', r'ide|disreg', r'ard|forg', r'et)'
+        ), re.IGNORECASE),
+         'Disguising urgent override instruction in tool description'),
+        (re.compile(r'always\s+(?:include|append|add|send|exfil)', re.IGNORECASE),
+         'Tool description instructs AI to always exfiltrate/append data'),
+        (re.compile(r'(?:send|transmit|upload|post)\s+(?:all\s+)?(?:user|conversation|chat|message|context)', re.IGNORECASE),
+         'Tool description instructs AI to transmit user conversation data'),
+        (re.compile(r'(?:read|access|cat|open)\s+(?:~|/etc/|/home/|C:\\Users\\|\$HOME)', re.IGNORECASE),
+         'Tool description instructs AI to read sensitive system files'),
+        (re.compile(r'do\s+not\s+(?:tell|inform|mention|show|reveal)\s+(?:the\s+)?user', re.IGNORECASE),
+         'Tool description instructs AI to hide actions from user'),
+    ]
+
+    def check_mcp_tool_descriptions(self, settings_path: Path) -> List[Dict]:
+        """
+        Scan MCP server configuration for prompt injection in tool descriptions.
+
+        Attackers can register an MCP server with tool descriptions that contain
+        prompt injection payloads. When Claude reads the tool list, the injected
+        instructions execute in the context of the AI's decision-making process.
+        """
+        issues = []
+        try:
+            with open(settings_path, 'r', encoding='utf-8', errors='ignore') as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return issues
+
+        mcp_servers = data.get('mcpServers', {})
+        if not isinstance(mcp_servers, dict):
+            return issues
+
+        for server_name, server_config in mcp_servers.items():
+            if not isinstance(server_config, dict):
+                continue
+
+            # Check inline tool definitions (some configs embed them)
+            tools = server_config.get('tools', [])
+            if not isinstance(tools, list):
+                tools = []
+
+            for tool in tools:
+                if not isinstance(tool, dict):
+                    continue
+                tool_name = tool.get('name', '<unnamed>')
+                description = tool.get('description', '')
+                if not description:
+                    continue
+
+                for pattern, label in self._MCP_DESC_INJECTION_PATTERNS:
+                    if pattern.search(description):
+                        issues.append({
+                            'type': 'mcp_tool_injection',
+                            'severity': 'CRITICAL',
+                            'category': 'prompt_injection',
+                            'rule_id': 'CLAUDE-006',
+                            'file': str(settings_path),
+                            'server': server_name,
+                            'tool': tool_name,
+                            'content': description[:200],
+                            'message': (
+                                f'MCP server "{server_name}" tool "{tool_name}": '
+                                f'{label}'
+                            ),
+                            'remediation': (
+                                'Remove malicious content from tool description immediately. '
+                                'Tool descriptions are passed to the AI as trusted context — '
+                                'any prompt injection here executes with full AI authority. '
+                                'Only install MCP servers from verified, trusted sources.'
+                            )
+                        })
+                        break  # one finding per tool
+
+            # Also scan the server description field if present
+            server_desc = server_config.get('description', '')
+            if server_desc:
+                for pattern, label in self._MCP_DESC_INJECTION_PATTERNS:
+                    if pattern.search(server_desc):
+                        issues.append({
+                            'type': 'mcp_server_description_injection',
+                            'severity': 'CRITICAL',
+                            'category': 'prompt_injection',
+                            'rule_id': 'CLAUDE-006',
+                            'file': str(settings_path),
+                            'server': server_name,
+                            'content': server_desc[:200],
+                            'message': (
+                                f'MCP server "{server_name}" description contains '
+                                f'prompt injection: {label}'
+                            ),
+                            'remediation': (
+                                'Remove or sanitize the server description. '
+                                'Server descriptions are read by the AI at connection time.'
+                            )
+                        })
+                        break
+
+        return issues
+
 
 class FileChangeMonitor:
     """File change monitor"""
@@ -2915,6 +3207,11 @@ class AutoSecurityScanner:
                         self.dependency_checker.check_claude_settings(settings_path),
                         'ai_config_issues'
                     )
+                    # MCP tool description prompt injection (P3-2)
+                    _collect(
+                        self.dependency_checker.check_mcp_tool_descriptions(settings_path),
+                        'ai_config_issues'
+                    )
 
             # Global Claude Code configuration
             home_claude = Path.home() / '.claude' / 'settings.json'
@@ -3009,6 +3306,9 @@ class AutoSecurityScanner:
                     # Skip build.rs files inside the compiled output directory
                     if 'target' not in build_rs.parts:
                         _collect(self.dependency_checker.check_build_rs(build_rs))
+
+            # ===== Dockerfile supply chain scanning (P3-1) =====
+            _collect(self.dependency_checker.scan_dockerfiles(proj_path))
 
             # Global ~/.npmrc (scan once from root project)
             if proj_path == root_path:
