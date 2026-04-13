@@ -6,11 +6,12 @@ Cross-platform supply chain security scanner for **Claude Code** and **OpenClaw*
 
 ```yaml
 name: ai-supply-chain-security
-version: 2.2.0
+version: 2.2.1
 description: >
   Install-and-run supply chain security scanner for AI coding environments.
   Automatically detects 60+ threat patterns across npm/PyPI/Rust ecosystems,
   GitHub Actions, IDE configs, build scripts, and AI assistant configurations.
+  v2.2 adds timeout protection, progress tracking, logging, and Docker security rules.
 author: JavaMaGong
 platforms: [Windows, macOS, Linux]
 category: security
